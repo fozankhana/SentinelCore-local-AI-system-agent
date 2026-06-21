@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %} — Alerts{% endblock %}
+{% block topbar_title %}Alert Center{% endblock %}
+
+{% block content %}
+<div class="sec-hd mb-4">
+  <div class="sec-title">Alerts</div>
+  <div class="flex gap-3">
+    <button class="btn" onclick="loadAlerts()">↻ Refresh</button>
+    <button class="btn btn-warn" onclick="ackAll()">Acknowledge All</button>
+  </div>
+</div>
+
+<div class="card">
+  <div id="alerts-list"></div>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+psutil>=5.9.0
+flask>=3.0.0
+flask-sock>=0.7.0
+pynvml>=11.5.0
+requests>=2.31.0
+tomli>=2.0.0; python_version < "3.11"

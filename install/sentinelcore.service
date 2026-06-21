@@ -1,0 +1,17 @@
+[Unit]
+Description=SentinelCore Local System Agent
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/sentinelcore
+ExecStart=/opt/sentinelcore/.venv/bin/python sentinelcore.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sentinelcore
+
+[Install]
+WantedBy=multi-user.target

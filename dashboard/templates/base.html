@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SentinelCore{% block title %}{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body data-page="{{ page }}">
+
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    <div>
+      <div class="logo-text">SentinelCore</div>
+      <div class="logo-sub">Local System Agent</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-section">
+      <div class="nav-label">Monitor</div>
+      <a href="/"          class="nav-item {% if page=='overview'  %}active{% endif %}"><span class="nav-icon">◈</span> Overview</a>
+      <a href="/gpu"       class="nav-item {% if page=='gpu'       %}active{% endif %}"><span class="nav-icon">⬡</span> GPU</a>
+      <a href="/processes" class="nav-item {% if page=='processes' %}active{% endif %}"><span class="nav-icon">≋</span> Processes</a>
+      <a href="/network"   class="nav-item {% if page=='network'   %}active{% endif %}"><span class="nav-icon">◎</span> Network</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Control</div>
+      <a href="/alerts" class="nav-item {% if page=='alerts' %}active{% endif %}">
+        <span class="nav-icon">◉</span> Alerts
+        <span id="alert-badge" class="pill pill-red" style="display:none;margin-left:auto;font-size:10px"></span>
+      </a>
+      <a href="/audit"  class="nav-item {% if page=='audit'  %}active{% endif %}"><span class="nav-icon">☰</span> Audit Log</a>
+      <a href="/config" class="nav-item {% if page=='config' %}active{% endif %}"><span class="nav-icon">⚙</span> Config</a>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="live-dot"></div>
+    <span>Live · localhost:4080</span>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">{% block topbar_title %}SentinelCore{% endblock %}</div>
+    <div class="topbar-pills">
+      <div class="topbar-pill">CPU <span class="val" id="tb-cpu">—</span></div>
+      <div class="topbar-pill">RAM <span class="val" id="tb-mem">—</span></div>
+      <div class="topbar-pill">GPU <span class="val" id="tb-gpu">—</span></div>
+    </div>
+  </header>
+
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

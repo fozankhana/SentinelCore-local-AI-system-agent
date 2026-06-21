@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %} — Network{% endblock %}
+{% block topbar_title %}Network Monitor{% endblock %}
+
+{% block content %}
+<div class="g2 mb-4">
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Inbound</div></div>
+    <div class="metric-num text-green"><span id="net-in">—</span></div>
+    <div class="metric-lbl">bytes per second</div>
+    <div class="chart-h140 mt-3"><canvas id="chart-net-in"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Outbound</div></div>
+    <div class="metric-num text-yellow"><span id="net-out">—</span></div>
+    <div class="metric-lbl">bytes per second</div>
+    <div class="chart-h140 mt-3"><canvas id="chart-net-out"></canvas></div>
+  </div>
+</div>
+
+<!-- Interfaces -->
+<div class="card mb-4">
+  <div class="card-hd"><div class="card-title">Interfaces</div></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Interface</th><th>In/s</th><th>Out/s</th><th>Total Recv</th><th>Total Sent</th></tr>
+      </thead>
+      <tbody id="iface-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Active Connections -->
+<div class="card">
+  <div class="card-hd">
+    <div class="card-title">Active Connections</div>
+    <div class="card-badge" id="conn-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Process</th><th>Local</th><th>Remote</th><th>Status</th></tr>
+      </thead>
+      <tbody id="conn-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const _orig = SC.updateNetwork.bind(SC);
+SC.updateNetwork = function(net) {
+  _orig(net);
+  const el = document.getElementById('conn-count');
+  if (el) el.textContent = (net.connections||[]).length + ' connections';
+};
+</script>
+{% endblock %}

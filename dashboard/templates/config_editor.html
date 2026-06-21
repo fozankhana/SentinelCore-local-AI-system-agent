@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %} — Config{% endblock %}
+{% block topbar_title %}Configuration{% endblock %}
+
+{% block content %}
+<div class="sec-hd mb-4">
+  <div class="sec-title">Configuration</div>
+  <button class="btn" onclick="loadConfig()">↻ Reload</button>
+</div>
+
+<div class="g2 mb-4">
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Config File Location</div></div>
+    <div class="text-sm text-dim mb-3">Edit the file below and restart SentinelCore to apply changes.</div>
+    <div class="font-mono text-sm" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:10px 12px;">
+      ~/.sentinelcore/config.toml<br>
+      <span class="text-dim">— or —</span><br>
+      ./config.toml
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Quick Reference</div></div>
+    <div class="text-sm" style="line-height:1.8">
+      <div><span class="text-dim">Dashboard port:</span> <code>agent.dashboard_port</code></div>
+      <div><span class="text-dim">Poll interval:</span> <code>agent.poll_interval_ms</code></div>
+      <div><span class="text-dim">GPU enforcement:</span> <code>gpu.enforcement = true</code></div>
+      <div><span class="text-dim">Add app rule:</span> <code>[[enforce]]</code> block</div>
+      <div><span class="text-dim">Block app:</span> <code>[[block]]</code> block</div>
+      <div><span class="text-dim">Enable AI:</span> <code>ai.enabled = true</code></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-hd">
+    <div class="card-title">Active Config (JSON)</div>
+    <div class="card-badge">Read-only — edit config.toml to change</div>
+  </div>
+  <pre id="config-json">Loading…</pre>
+</div>
+{% endblock %}

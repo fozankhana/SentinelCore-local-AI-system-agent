@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %} — Processes{% endblock %}
+{% block topbar_title %}Process Manager{% endblock %}
+
+{% block content %}
+<div class="sec-hd mb-4">
+  <div class="sec-title">All Processes</div>
+  <div class="flex gap-3 items-center">
+    <input type="text" id="proc-search" class="search" placeholder="Filter by name…" oninput="SC.updateProcesses(SC.last.processes||[])">
+    <span class="text-dim text-xs" id="proc-count"></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Name</th>
+          <th>CPU %</th>
+          <th>RAM</th>
+          <th>VRAM</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="proc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const _orig = SC.updateProcesses.bind(SC);
+SC.updateProcesses = function(procs) {
+  _orig(procs);
+  const el = document.getElementById('proc-count');
+  if (el) el.textContent = procs.length + ' processes';
+};
+</script>
+{% endblock %}
