@@ -15,6 +15,7 @@ _enforcer = None
 _alerts_sys = None
 _config = None
 _ai_agent = None
+_bg_agent = None
 _latest: Dict[str, Any] = {}
 _latest_lock = threading.Lock()
 
@@ -25,14 +26,15 @@ def set_latest(metrics: Dict[str, Any]):
         _latest = metrics
 
 
-def create_app(config, store, collector, enforcer, alerts, ai_agent=None):
-    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent
+def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_agent=None):
+    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent, _bg_agent
     _store = store
     _collector = collector
     _enforcer = enforcer
     _alerts_sys = alerts
     _config = config
     _ai_agent = ai_agent
+    _bg_agent = bg_agent
 
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["SECRET_KEY"] = "sentinelcore-local-only"
@@ -66,6 +68,41 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None):
     @app.route("/audit")
     def audit_page():
         return render_template("audit.html", page="audit")
+
+    @app.route("/background")
+    def background_page():
+        return render_template("background.html", page="background")
+
+    # --- API: background agent ---
+
+    @app.route("/api/background")
+    def api_background():
+        if _bg_agent is None:
+            return jsonify({"error": "background agent not initialised"}), 503
+        return jsonify(_bg_agent.collect())
+
+    @app.route("/api/background/stream")
+    def api_background_stream():
+        def generate():
+            while True:
+                try:
+                    if _bg_agent:
+                        data = _bg_agent.collect()
+                        yield f"data: {json.dumps(data, default=str)}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                time.sleep(3)
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    @app.route("/api/background/allprocs")
+    def api_all_procs():
+        if _bg_agent is None:
+            return jsonify([])
+        return jsonify(_bg_agent.collect_all_procs())
 
     # --- API: live stream ---
 
