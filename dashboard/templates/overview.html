@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %} — Overview{% endblock %}
+{% block topbar_title %}Overview{% endblock %}
+
+{% block content %}
+<div class="g4 mb-4">
+
+  <!-- CPU -->
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">CPU</div>
+    </div>
+    <div class="metric-num"><span id="cpu-total">—</span><span class="metric-unit">%</span></div>
+    <div class="metric-lbl" id="cpu-cores">— cores</div>
+    <div class="bar mt-3"><div class="bar-fill" id="cpu-bar" style="width:0%"></div></div>
+    <div class="chart-h80 mt-3"><canvas id="chart-cpu"></canvas></div>
+  </div>
+
+  <!-- RAM -->
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Memory</div>
+    </div>
+    <div class="metric-num"><span id="mem-pct">—</span><span class="metric-unit">%</span></div>
+    <div class="metric-lbl"><span id="mem-used">—</span> <span id="mem-total" class="text-dim"></span></div>
+    <div class="bar mt-3"><div class="bar-fill" id="mem-bar" style="width:0%"></div></div>
+    <div class="chart-h80 mt-3"><canvas id="chart-mem"></canvas></div>
+  </div>
+
+  <!-- GPU -->
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">GPU</div>
+    </div>
+    <div id="gpu-list"></div>
+    <div class="chart-h80 mt-3"><canvas id="chart-gpu"></canvas></div>
+  </div>
+
+  <!-- Health -->
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">System Health</div>
+    </div>
+    <div class="health-num h-good" id="health-score">—</div>
+    <div class="metric-lbl mt-3">Score out of 100</div>
+    <div class="mt-4">
+      <div class="flex justify-between text-xs text-dim mb-3">
+        <span>Network In</span><span id="net-in">—</span>
+      </div>
+      <div class="flex justify-between text-xs text-dim mb-3">
+        <span>Network Out</span><span id="net-out">—</span>
+      </div>
+      <div class="flex justify-between text-xs text-dim mb-3">
+        <span>Disk Read</span><span id="disk-read">—</span>
+      </div>
+      <div class="flex justify-between text-xs text-dim">
+        <span>Disk Write</span><span id="disk-write">—</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Swap + Network charts -->
+<div class="g2 mb-4">
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Swap</div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-sm"><span id="swap-used">—</span> <span class="text-dim" id="swap-total"></span></span>
+    </div>
+    <div class="bar mt-3"><div class="bar-fill" id="swap-bar" style="width:0%"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Network Throughput</div>
+    </div>
+    <div class="chart-h80"><canvas id="chart-net-in"></canvas></div>
+  </div>
+</div>
+
+<!-- CPU Cores grid -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="card-title">CPU Cores</div>
+  </div>
+  <div id="core-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;"></div>
+</div>
+
+<!-- Enforcement + Recent Alerts -->
+<div class="g2">
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">GPU Enforcement</div>
+      <a href="/gpu" class="card-badge">View all →</a>
+    </div>
+    <div id="enf-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Recent Alerts</div>
+      <a href="/alerts" class="card-badge">View all →</a>
+    </div>
+    <div id="alerts-list-overview"></div>
+  </div>
+</div>
+
+<script>
+// Load recent alerts for overview panel
+function loadOverviewAlerts() {
+  fetch('/api/alerts?limit=8').then(r => r.json()).then(data => {
+    const el = document.getElementById('alerts-list-overview');
+    if (!el) return;
+    if (!data.length) {
+      el.innerHTML = '<div class="text-dim text-sm">No alerts.</div>';
+      return;
+    }
+    el.innerHTML = data.map(a => `
+      <div class="alert-row">
+        <div class="alert-dot ad-${a.severity}"></div>
+        <div class="alert-msg text-sm ${a.acknowledged?'text-dim':''}">${escHtml(a.message)}</div>
+        <div class="alert-ts">${fmtTime(a.timestamp)}</div>
+      </div>`).join('');
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  loadOverviewAlerts();
+  setInterval(loadOverviewAlerts, 5000);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %} — GPU{% endblock %}
+{% block topbar_title %}GPU Command Center{% endblock %}
+
+{% block content %}
+<div class="sec-hd mb-4">
+  <div class="sec-title">GPU Status</div>
+</div>
+
+<!-- GPU panels (populated by JS) -->
+<div id="gpu-list" class="mb-4"></div>
+
+<!-- GPU History chart -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="card-title">GPU Utilization — Last 60s</div>
+  </div>
+  <div class="chart-h200"><canvas id="chart-gpu"></canvas></div>
+</div>
+
+<!-- Enforcement board -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="card-title">Enforcement Board</div>
+  </div>
+  <div id="enf-list"></div>
+</div>
+
+<!-- Per-process GPU attribution -->
+<div class="card">
+  <div class="card-hd">
+    <div class="card-title">Process GPU Attribution</div>
+    <div class="card-badge" id="gpu-proc-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Process</th>
+          <th>CPU %</th>
+          <th>RAM</th>
+          <th>VRAM</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="gpu-proc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// Override process update to show GPU-heavy processes in this page
+const _origUpdate = SC.update.bind(SC);
+SC.update = function(d) {
+  _origUpdate(d);
+  updateGPUProcesses(d.processes || []);
+};
+
+function updateGPUProcesses(procs) {
+  const gpuProcs = procs.filter(p => p.vram_mb > 0 || p.cpu_pct > 5);
+  const tbody = document.getElementById('gpu-proc-tbody');
+  const count = document.getElementById('gpu-proc-count');
+  if (count) count.textContent = gpuProcs.length + ' processes';
+  if (!tbody) return;
+  tbody.innerHTML = gpuProcs.slice(0, 30).map(p => `
+    <tr>
+      <td class="text-dim">${p.pid}</td>
+      <td class="font-mono">${escHtml(p.name)}</td>
+      <td class="${p.cpu_pct>50?'text-red':p.cpu_pct>20?'text-yellow':''}">${fmt1(p.cpu_pct)}%</td>
+      <td>${fmtMB(p.ram_mb)}</td>
+      <td class="${p.vram_mb>0?'text-purple':''}">${p.vram_mb>0?fmtMB(p.vram_mb):'—'}</td>
+      <td><span class="pill ${p.status==='running'?'pill-green':'pill-gray'}">${p.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-warn"   onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
+        <button class="btn btn-sm btn-danger"  onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %} — Audit Log{% endblock %}
+{% block topbar_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="sec-hd mb-4">
+  <div class="sec-title">Agent Actions</div>
+  <button class="btn" onclick="loadAudit()">↻ Refresh</button>
+</div>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Action</th><th>Target</th><th>Reason</th><th>Result</th></tr>
+      </thead>
+      <tbody id="audit-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

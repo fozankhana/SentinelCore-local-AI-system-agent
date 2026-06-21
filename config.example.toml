@@ -1,0 +1,78 @@
+[agent]
+poll_interval_ms  = 1000
+dashboard_port    = 4080
+dashboard_host    = "127.0.0.1"
+log_level         = "info"
+audit_log         = true
+
+[storage]
+db_path           = "~/.sentinelcore/metrics.db"
+retention_1s_hrs  = 24
+retention_1m_days = 30
+retention_1h_days = 365
+
+[gpu]
+backend           = "auto"
+enforcement       = true
+check_interval_ms = 2000
+
+[ai]
+enabled           = false
+backend           = "ollama"
+endpoint          = "http://localhost:11434"
+model             = "llama3.2:3b"
+interval          = 300
+
+[alerts]
+cpu_pct_warn      = 85
+ram_pct_warn      = 90
+gpu_temp_warn_c   = 85
+vram_pct_warn     = 95
+disk_smart_fail   = true
+
+[alerts.webhook]
+enabled  = false
+url      = ""
+method   = "POST"
+severity = ["warning", "critical"]
+
+[[enforce]]
+name        = "Chrome"
+exe         = "chrome"
+gpu_enforce = true
+max_cpu_pct = 15
+max_ram_mb  = 3000
+max_vram_mb = 4096
+action      = "throttle"
+
+[[enforce]]
+name        = "Firefox"
+exe         = "firefox"
+gpu_enforce = true
+max_cpu_pct = 10
+max_ram_mb  = 2048
+action      = "alert"
+
+[[enforce]]
+name        = "Blender"
+exe         = "blender"
+gpu_enforce = true
+gpu_backend = "cuda"
+max_vram_mb = 8192
+action      = "restart"
+
+[[enforce]]
+name        = "VS Code"
+exe         = "code"
+gpu_enforce = true
+max_cpu_pct = 20
+max_ram_mb  = 2048
+action      = "throttle"
+
+# [[block]]
+# exe    = "teams"
+# reason = "CPU/RAM hog — use web version"
+
+# [[schedule]]
+# exe           = "steam"
+# allowed_hours = "20:00-23:59"
