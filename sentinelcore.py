@@ -12,6 +12,7 @@ from core.collector import MetricsCollector
 from core.enforcer import GPUEnforcer
 from core.alerts import AlertSystem
 from core.ai_agent import AIAgent
+from core.background import BackgroundAgent
 from dashboard import server as dash
 
 
@@ -46,6 +47,9 @@ def main():
     if config.ai.enabled:
         ai_agent = AIAgent(config, store)
         log.info("AI agent enabled (%s @ %s)", config.ai.model, config.ai.endpoint)
+
+    bg_agent = BackgroundAgent()
+    log.info("Background agent started")
 
     stop = threading.Event()
 
@@ -91,7 +95,7 @@ def main():
         t_ai = threading.Thread(target=ai_loop, name="ai_agent", daemon=True)
         t_ai.start()
 
-    app = dash.create_app(config, store, collector, enforcer, alerts, ai_agent)
+    app = dash.create_app(config, store, collector, enforcer, alerts, ai_agent, bg_agent)
 
     host = config.agent.dashboard_host
     port = config.agent.dashboard_port

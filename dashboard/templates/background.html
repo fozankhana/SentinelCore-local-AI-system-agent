@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+{% block title %} — Background{% endblock %}
+{% block topbar_title %}Background Agent{% endblock %}
+
+{% block content %}
+<!-- Summary cards -->
+<div class="g4 mb-4" id="bg-summary">
+  <div class="card">
+    <div class="card-title">System Processes</div>
+    <div class="metric-num text-blue" id="bg-cnt-procs">—</div>
+    <div class="metric-lbl">running as SYSTEM / service</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Services</div>
+    <div class="metric-num text-green" id="bg-cnt-svcs">—</div>
+    <div class="metric-lbl">Windows services running</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Startup Items</div>
+    <div class="metric-num text-yellow" id="bg-cnt-startup">—</div>
+    <div class="metric-lbl">programs that launch at boot</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Open Ports</div>
+    <div class="metric-num text-red" id="bg-cnt-ports">—</div>
+    <div class="metric-lbl">listening on your machine</div>
+  </div>
+</div>
+
+<!-- All processes / system processes toggle -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Background &amp; System Processes</div>
+    <div class="flex gap-3 items-center">
+      <label class="flex items-center gap-2 text-sm text-dim" style="cursor:pointer">
+        <input type="checkbox" id="show-all-procs" onchange="toggleAllProcs()">
+        Show all processes
+      </label>
+      <input type="text" id="bg-proc-search" class="search" placeholder="Filter…" style="width:160px" oninput="renderProcs()">
+      <span class="text-xs text-dim" id="bg-proc-count"></span>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Name</th>
+          <th>User / Account</th>
+          <th>CPU %</th>
+          <th>RAM</th>
+          <th>Status</th>
+          <th>Type</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="bg-proc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Silent outbound connections -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Silent Outbound Connections</div>
+    <div class="card-badge" id="bg-outbound-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Process</th>
+          <th>Account</th>
+          <th>Remote Address</th>
+          <th>Type</th>
+        </tr>
+      </thead>
+      <tbody id="bg-outbound-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Open ports / listeners -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Listening Ports</div>
+    <div class="card-badge" id="bg-ports-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Port</th><th>Process</th><th>PID</th><th>Bind Address</th><th>Exposure</th></tr>
+      </thead>
+      <tbody id="bg-ports-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Startup programs -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Startup Programs</div>
+    <div class="card-badge" id="bg-startup-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Location</th><th>Command</th></tr>
+      </thead>
+      <tbody id="bg-startup-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Windows Services -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Windows Services</div>
+    <div class="flex gap-3 items-center">
+      <label class="flex items-center gap-2 text-sm text-dim" style="cursor:pointer">
+        <input type="checkbox" id="svc-running-only" checked onchange="renderServices()">
+        Running only
+      </label>
+      <input type="text" id="svc-search" class="search" placeholder="Filter…" style="width:160px" oninput="renderServices()">
+      <span class="text-xs text-dim" id="bg-svc-count"></span>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Display Name</th><th>Status</th><th>Start Type</th><th>Account</th><th>PID</th><th>Description</th></tr>
+      </thead>
+      <tbody id="bg-svc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Scheduled Tasks -->
+<div class="card">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Scheduled Tasks <span class="text-xs text-dim">(non-Microsoft)</span></div>
+    <div class="card-badge" id="bg-tasks-count">—</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Task Name</th><th>Status</th><th>Next Run</th><th>Last Run</th><th>Author</th><th>Command</th></tr>
+      </thead>
+      <tbody id="bg-tasks-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let _bgData = null;
+let _allProcs = [];
+
+// ── SSE connection ─────────────────────────────────────────────────────────
+const bgSse = new EventSource('/api/background/stream');
+bgSse.onmessage = (e) => {
+  try {
+    _bgData = JSON.parse(e.data);
+    if (_bgData.error) return;
+    renderAll(_bgData);
+  } catch(_) {}
+};
+bgSse.onerror = () => setTimeout(() => location.reload(), 5000);
+
+// Fetch all procs separately (heavier, every 3s)
+function fetchAllProcs() {
+  fetch('/api/background/allprocs')
+    .then(r => r.json())
+    .then(d => { _allProcs = d; renderProcs(); })
+    .catch(() => {});
+}
+fetchAllProcs();
+setInterval(fetchAllProcs, 3000);
+
+// ── Render all ────────────────────────────────────────────────────────────
+function renderAll(d) {
+  // Summary counts
+  const runningServices = (d.services || []).filter(s => s.status === 'running').length;
+  setText('bg-cnt-procs',   (d.hidden_procs  || []).length);
+  setText('bg-cnt-svcs',    runningServices);
+  setText('bg-cnt-startup', (d.startup       || []).length);
+  setText('bg-cnt-ports',   (d.listeners     || []).length);
+
+  renderOutbound(d.outbound_silent || []);
+  renderPorts(d.listeners || []);
+  renderStartup(d.startup || []);
+  renderServices();
+  renderTasks(d.scheduled_tasks || []);
+
+  // Store services and tasks in module scope for filter use
+  window._bgServices = d.services || [];
+  window._bgTasks    = d.scheduled_tasks || [];
+}
+
+// ── Processes ─────────────────────────────────────────────────────────────
+function toggleAllProcs() {
+  renderProcs();
+}
+
+function renderProcs() {
+  const showAll  = document.getElementById('show-all-procs').checked;
+  const filter   = (document.getElementById('bg-proc-search').value || '').toLowerCase();
+  const source   = showAll ? _allProcs
+    : (_bgData ? (_bgData.hidden_procs || []) : []);
+
+  const filtered = filter
+    ? source.filter(p => p.name.toLowerCase().includes(filter) || String(p.pid).includes(filter))
+    : source;
+
+  setText('bg-proc-count', filtered.length + ' processes');
+
+  const tbody = document.getElementById('bg-proc-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = filtered.slice(0, 120).map(p => {
+    const cpuCls  = p.cpu_pct  > 50 ? 'text-red'    : p.cpu_pct  > 20 ? 'text-yellow' : '';
+    const ramCls  = p.ram_mb   > 500 ? 'text-yellow' : '';
+    const typePill = p.is_sys
+      ? '<span class="pill pill-blue">SYSTEM</span>'
+      : '<span class="pill pill-gray">user</span>';
+
+    return `<tr>
+      <td class="text-dim">${p.pid}</td>
+      <td class="font-mono fw-600">${escHtml(p.name)}</td>
+      <td class="text-dim text-xs truncate" style="max-width:160px">${escHtml(p.username)}</td>
+      <td class="fw-600 ${cpuCls}">${fmt1(p.cpu_pct)}%</td>
+      <td class="${ramCls}">${fmtMB(p.ram_mb)}</td>
+      <td><span class="pill ${p.status==='running'?'pill-green':'pill-gray'}">${p.status}</span></td>
+      <td>${typePill}</td>
+      <td>
+        <button class="btn btn-sm btn-warn"   onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
+        <button class="btn btn-sm btn-danger"  onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Outbound connections ──────────────────────────────────────────────────
+function renderOutbound(conns) {
+  setText('bg-outbound-count', conns.length + ' connections');
+  const tbody = document.getElementById('bg-outbound-tbody');
+  if (!tbody) return;
+  if (!conns.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-dim text-sm" style="padding:12px">No background outbound connections detected.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = conns.map(c => {
+    const typePill = c.is_sys
+      ? '<span class="pill pill-blue">SYSTEM</span>'
+      : '<span class="pill pill-gray">user</span>';
+    return `<tr>
+      <td class="text-dim">${c.pid || '—'}</td>
+      <td class="font-mono fw-600">${escHtml(c.proc || '—')}</td>
+      <td class="text-xs text-dim">${escHtml(c.username)}</td>
+      <td class="font-mono text-xs">${escHtml(c.remote)}</td>
+      <td>${typePill}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Listening ports ───────────────────────────────────────────────────────
+function renderPorts(listeners) {
+  setText('bg-ports-count', listeners.length + ' ports');
+  const tbody = document.getElementById('bg-ports-tbody');
+  if (!tbody) return;
+  if (!listeners.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-dim text-sm" style="padding:12px">No listening ports found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = listeners.map(l => {
+    const exposure = l.public
+      ? '<span class="pill pill-red">Public (0.0.0.0)</span>'
+      : '<span class="pill pill-gray">Local only</span>';
+    const notable  = l.notable
+      ? `<span class="pill pill-yellow" title="Well-known port">${l.port}</span>`
+      : `<span class="fw-600">${l.port}</span>`;
+    return `<tr>
+      <td>${notable}</td>
+      <td class="font-mono fw-600">${escHtml(l.proc || '—')}</td>
+      <td class="text-dim">${l.pid || '—'}</td>
+      <td class="font-mono text-xs text-dim">${escHtml(l.addr || '*')}</td>
+      <td>${exposure}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Startup ───────────────────────────────────────────────────────────────
+function renderStartup(items) {
+  setText('bg-startup-count', items.length + ' items');
+  const tbody = document.getElementById('bg-startup-tbody');
+  if (!tbody) return;
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-dim text-sm" style="padding:12px">No startup items found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(it => {
+    const locPill = it.type === 'registry'
+      ? `<span class="pill pill-yellow">${escHtml(it.location)}</span>`
+      : `<span class="pill pill-gray">${escHtml(it.location)}</span>`;
+    return `<tr>
+      <td class="fw-600">${escHtml(it.name)}</td>
+      <td>${locPill}</td>
+      <td class="font-mono text-xs text-dim truncate" style="max-width:400px" title="${escHtml(it.command)}">${escHtml(it.command)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Services ──────────────────────────────────────────────────────────────
+function renderServices() {
+  const svcs        = window._bgServices || [];
+  const runningOnly = document.getElementById('svc-running-only').checked;
+  const filter      = (document.getElementById('svc-search').value || '').toLowerCase();
+
+  let filtered = runningOnly ? svcs.filter(s => s.status === 'running') : svcs;
+  if (filter) filtered = filtered.filter(s =>
+    s.display_name.toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter)
+  );
+
+  setText('bg-svc-count', filtered.length + ' / ' + svcs.length + ' services');
+  const tbody = document.getElementById('bg-svc-tbody');
+  if (!tbody) return;
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-dim text-sm" style="padding:12px">No services match filter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.slice(0, 100).map(s => {
+    const stPill = s.status === 'running'
+      ? '<span class="pill pill-green">running</span>'
+      : `<span class="pill pill-gray">${s.status}</span>`;
+    const startPill = s.start_type === 'automatic'
+      ? '<span class="pill pill-blue">auto</span>'
+      : s.start_type === 'disabled'
+      ? '<span class="pill pill-gray">disabled</span>'
+      : `<span class="pill pill-gray">${s.start_type}</span>`;
+    return `<tr>
+      <td class="fw-600">${escHtml(s.display_name)}</td>
+      <td>${stPill}</td>
+      <td>${startPill}</td>
+      <td class="text-dim text-xs">${escHtml(s.username || '—')}</td>
+      <td class="text-dim">${s.pid || '—'}</td>
+      <td class="text-dim text-xs truncate" style="max-width:200px" title="${escHtml(s.description)}">${escHtml(s.description || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Scheduled tasks ───────────────────────────────────────────────────────
+function renderTasks(tasks) {
+  setText('bg-tasks-count', tasks.length + ' tasks');
+  const tbody = document.getElementById('bg-tasks-tbody');
+  if (!tbody) return;
+  if (!tasks.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-dim text-sm" style="padding:12px">No non-Microsoft scheduled tasks found (or still loading…)</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tasks.map(t => {
+    const stPill = t.status === 'Ready'
+      ? '<span class="pill pill-green">Ready</span>'
+      : t.status === 'Running'
+      ? '<span class="pill pill-blue">Running</span>'
+      : `<span class="pill pill-gray">${escHtml(t.status)}</span>`;
+    return `<tr>
+      <td class="fw-600 font-mono text-xs">${escHtml(t.name)}</td>
+      <td>${stPill}</td>
+      <td class="text-dim text-xs">${escHtml(t.next_run || '—')}</td>
+      <td class="text-dim text-xs">${escHtml(t.last_run || '—')}</td>
+      <td class="text-dim text-xs">${escHtml(t.author || '—')}</td>
+      <td class="font-mono text-xs text-dim truncate" style="max-width:220px" title="${escHtml(t.task_to_run)}">${escHtml(t.task_to_run || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Initialise service filter listeners
+document.addEventListener('DOMContentLoaded', () => {
+  window._bgServices = [];
+  window._bgTasks    = [];
+});
+</script>
+{% endblock %}
