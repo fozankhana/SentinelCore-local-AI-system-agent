@@ -11,7 +11,7 @@
 ## Setup
 
 ```bash
-git clone https://github.com/yourusername/sentinelcore
+git clone https://github.com/fozankhana/sentinelcore
 cd sentinelcore
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
