@@ -55,13 +55,6 @@
 </div>
 
 <script>
-// Override process update to show GPU-heavy processes in this page
-const _origUpdate = SC.update.bind(SC);
-SC.update = function(d) {
-  _origUpdate(d);
-  updateGPUProcesses(d.processes || []);
-};
-
 function updateGPUProcesses(procs) {
   const gpuProcs = procs.filter(p => p.vram_mb > 0 || p.cpu_pct > 5);
   const tbody = document.getElementById('gpu-proc-tbody');
@@ -78,10 +71,11 @@ function updateGPUProcesses(procs) {
       <td><span class="pill ${p.status==='running'?'pill-green':'pill-gray'}">${p.status}</span></td>
       <td>
         ${p.vram_mb === 0 ? `<button class="btn btn-sm" onclick="SC.migrateProc(${p.pid},'${escHtml(p.name)}')">GPU→</button>` : ''}
-        <button class="btn btn-sm btn-warn"   onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
-        <button class="btn btn-sm btn-danger"  onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
+        <button class="btn btn-sm btn-warn"  onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
+        <button class="btn btn-sm btn-danger" onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
       </td>
     </tr>`).join('');
 }
+
 </script>
 {% endblock %}
