@@ -306,7 +306,7 @@ Core rules: no cloud dependencies, no telemetry, all actions auditable, agent st
 
 ## License
 
-[MIT](LICENSE)
+(LICENSE)
 
 ---
 
