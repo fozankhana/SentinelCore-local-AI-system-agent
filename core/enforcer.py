@@ -1,9 +1,10 @@
 import logging
+import os
 import platform
 import subprocess
 import time
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psutil
 
@@ -22,84 +23,172 @@ CHROME_GPU_FLAGS = [
     "--force-gpu-mem-available-mb=4096",
 ]
 
-CHROME_LIKE = {"chrome", "brave", "msedge", "edge", "arc", "chromium", "google-chrome", "brave-browser"}
+CHROME_LIKE  = {"chrome", "brave", "msedge", "edge", "arc", "chromium", "google-chrome", "brave-browser"}
+FIREFOX_LIKE = {"firefox", "firefox-esr"}
+
+CUDA_ENV = {
+    "CUDA_VISIBLE_DEVICES": "0",
+    "__NV_PRIME_RENDER_OFFLOAD": "1",
+    "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+}
 
 
 class GPUEnforcer:
-    def __init__(self, config, store):
-        self.config = config
-        self.store = store
-        self._block_set = {r.exe.lower() for r in config.block}
-        self._enforce_map = {r.exe.lower(): r for r in config.enforce}
+    def __init__(self, config, store, collector=None):
+        self.config     = config
+        self.store      = store
+        self._collector = collector
+        self._block_set    = {r.exe.lower() for r in config.block}
+        self._enforce_map  = {r.exe.lower(): r for r in config.enforce}
         self._schedule_map = {r.exe.lower(): r for r in config.schedule}
         self._alert_cooldown: Dict[str, float] = {}
         self._cooldown_secs = 60
+        self._rule_state: Dict[str, Dict] = {
+            exe: {"compliant": True, "vram_mb": 0.0, "last_action": None,
+                  "last_violation": None, "violation_count": 0}
+            for exe in self._enforce_map
+        }
 
     def check(self, metrics: Dict[str, Any]):
         if not self.config.gpu.enforcement:
             return
+
+        gpu_proc_map: Dict[int, float] = {}
+        if self._collector:
+            try:
+                gpu_proc_map = self._collector.get_gpu_process_map()
+            except Exception:
+                pass
+
         for proc in metrics.get("processes", []):
+            pid = proc.get("pid")
+            if pid and pid in gpu_proc_map:
+                proc["vram_mb"] = gpu_proc_map[pid]
             self._evaluate(proc)
 
     def _evaluate(self, proc: Dict):
-        raw_name = proc.get("name", "")
-        name_lower = raw_name.lower()
-        exe_base = name_lower.replace(".exe", "")
+        name_lower = proc.get("name", "").lower()
+        exe_base   = name_lower.replace(".exe", "")
 
-        matched_block = next(
-            (k for k in self._block_set if k == exe_base or k == name_lower.replace(".exe", "")), None
-        )
-        if matched_block:
-            self._kill(proc, f"blocked: {matched_block}")
+        blocked = next((k for k in self._block_set if k == exe_base), None)
+        if blocked:
+            self._kill(proc, f"blocked: {blocked}")
             return
 
-        matched_sched = next(
-            (k for k in self._schedule_map if k in exe_base or k == exe_base), None
-        )
-        if matched_sched:
-            rule = self._schedule_map[matched_sched]
-            if not _within_hours(rule.allowed_hours):
-                self._kill(proc, f"outside schedule ({rule.allowed_hours})")
-                return
+        sched = next((k for k in self._schedule_map if k in exe_base or k == exe_base), None)
+        if sched and not _within_hours(self._schedule_map[sched].allowed_hours):
+            self._kill(proc, f"outside schedule ({self._schedule_map[sched].allowed_hours})")
+            return
 
-        matched_enforce = next(
-            (k for k in self._enforce_map if k in exe_base or k == exe_base), None
-        )
-        if matched_enforce:
-            rule = self._enforce_map[matched_enforce]
-            self._enforce(proc, rule)
+        matched = next((k for k in self._enforce_map if k in exe_base or k == exe_base), None)
+        if matched:
+            self._enforce(proc, self._enforce_map[matched], matched)
 
-    def _enforce(self, proc: Dict, rule):
+    def _enforce(self, proc: Dict, rule, rule_key: str):
+        cpu  = proc.get("cpu_pct",  0)
+        ram  = proc.get("ram_mb",   0)
+        vram = proc.get("vram_mb",  0.0)
+        pid  = proc.get("pid")
+        name = proc.get("name", "")
+
+        if rule_key in self._rule_state:
+            self._rule_state[rule_key]["vram_mb"] = vram
+
         violations = []
-        cpu = proc.get("cpu_pct", 0)
-        ram = proc.get("ram_mb", 0)
-
-        if rule.max_cpu_pct and cpu > rule.max_cpu_pct:
+        if rule.max_cpu_pct  and cpu  > rule.max_cpu_pct:
             violations.append(f"CPU {cpu:.1f}% > cap {rule.max_cpu_pct}%")
-        if rule.max_ram_mb and ram > rule.max_ram_mb:
+        if rule.max_ram_mb   and ram  > rule.max_ram_mb:
             violations.append(f"RAM {ram:.0f}MB > cap {rule.max_ram_mb}MB")
+        if rule.max_vram_mb  and vram > rule.max_vram_mb:
+            violations.append(f"VRAM {vram:.0f}MB > cap {rule.max_vram_mb}MB")
+        if rule.gpu_enforce and cpu > 5 and vram == 0.0:
+            violations.append(f"GPU fallback: CPU={cpu:.1f}% VRAM=0 (not on GPU)")
 
         if not violations:
+            if rule_key in self._rule_state:
+                self._rule_state[rule_key]["compliant"] = True
             return
 
         reason = "; ".join(violations)
-        pid = proc.get("pid")
-        name = proc.get("name", "")
-        action = rule.action
+        if rule_key in self._rule_state:
+            s = self._rule_state[rule_key]
+            s["compliant"]       = False
+            s["last_violation"]  = time.time()
+            s["violation_count"] = s.get("violation_count", 0) + 1
 
         try:
             p = psutil.Process(pid)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return
 
-        if action == "alert":
-            self._throttled_alert(f"{pid}:{reason}", "warning", f"{name} (PID {pid}): {reason}", name, reason)
-        elif action == "throttle":
-            self._throttle(p, name, reason)
-        elif action == "kill":
-            self._kill(proc, reason)
-        elif action == "restart":
-            self._restart(p, name, reason)
+        # GPU fallback takes priority: migrate before other actions
+        if rule.gpu_enforce and any("GPU fallback" in v for v in violations):
+            self._migrate_to_gpu(p, name, reason, rule_key)
+            return
+
+        action = rule.action
+        if   action == "alert":    self._throttled_alert(f"{pid}:{reason}", "warning", f"{name} (PID {pid}): {reason}", name, reason)
+        elif action == "throttle": self._throttle(p, name, reason, rule_key)
+        elif action == "kill":     self._kill(proc, reason, rule_key)
+        elif action == "restart":  self._restart(p, name, reason, rule_key)
+
+    def _migrate_to_gpu(self, p: psutil.Process, name: str, reason: str, rule_key: str = ""):
+        key = f"migrate:{p.pid}"
+        now = time.time()
+        if now - self._alert_cooldown.get(key, 0) < self._cooldown_secs:
+            return
+        self._alert_cooldown[key] = now
+
+        exe_base = name.lower().replace(".exe", "")
+        try:
+            cmdline = p.cmdline()
+            cwd     = p.cwd()
+            env     = os.environ.copy()
+
+            if exe_base in CHROME_LIKE:
+                # If GPU flags already injected but still no GPU, don't loop — alert instead
+                if any(f in cmdline for f in CHROME_GPU_FLAGS[:2]):
+                    self._throttled_alert(
+                        f"gpu-stuck:{p.pid}", "warning",
+                        f"{name} has GPU flags but GPU utilisation is still 0 — hardware acceleration may be blocked.",
+                        name, reason,
+                    )
+                    return
+                extra       = [f for f in CHROME_GPU_FLAGS if f not in cmdline]
+                new_cmdline = cmdline + extra
+            elif exe_base in FIREFOX_LIKE:
+                env["MOZ_WEBRENDER"]    = "1"
+                env["MOZ_ACCELERATED"]  = "1"
+                new_cmdline = cmdline
+            else:
+                env.update(CUDA_ENV)
+                new_cmdline = cmdline
+
+            p.terminate()
+            time.sleep(0.4)
+            if new_cmdline:
+                flags = 0
+                if platform.system() == "Windows":
+                    flags = subprocess.DETACHED_PROCESS
+                subprocess.Popen(new_cmdline, cwd=cwd, env=env, creationflags=flags)
+
+            log.info("MIGRATED  %-20s  → relaunched with GPU flags", name)
+            self.store.add_audit("MIGRATE", name, reason, f"relaunched with GPU flags (PID {p.pid})")
+            self.store.add_alert("info", f"GPU migrated {name} (PID {p.pid})")
+            if rule_key in self._rule_state:
+                self._rule_state[rule_key]["last_action"] = "migrate"
+        except Exception as e:
+            log.error("GPU migration failed for %s: %s", name, e)
+
+    def migrate_pid(self, pid: int) -> Dict:
+        """Manual GPU migration from the dashboard."""
+        try:
+            p    = psutil.Process(pid)
+            name = p.name()
+            self._migrate_to_gpu(p, name, "manual migration via dashboard")
+            return {"ok": True, "message": f"GPU migration triggered for {name} (PID {pid})"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     def _throttled_alert(self, key: str, severity: str, message: str, target: str, reason: str):
         now = time.time()
@@ -109,19 +198,18 @@ class GPUEnforcer:
         self.store.add_alert(severity, message)
         self.store.add_audit("ALERT", target, reason, "alerted")
 
-    def _throttle(self, p: psutil.Process, name: str, reason: str):
+    def _throttle(self, p: psutil.Process, name: str, reason: str, rule_key: str = ""):
         try:
-            if platform.system() == "Windows":
-                p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-            else:
-                p.nice(10)
+            p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if platform.system() == "Windows" else 10)
             log.info("Throttled %s (PID %s): %s", name, p.pid, reason)
             self.store.add_audit("THROTTLE", name, reason, f"priority lowered (PID {p.pid})")
+            if rule_key in self._rule_state:
+                self._rule_state[rule_key]["last_action"] = "throttle"
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             log.debug("Throttle failed for %s: %s", name, e)
 
-    def _kill(self, proc: Dict, reason: str):
-        pid = proc.get("pid")
+    def _kill(self, proc: Dict, reason: str, rule_key: str = ""):
+        pid  = proc.get("pid")
         name = proc.get("name", "")
         if not pid:
             return
@@ -132,14 +220,15 @@ class GPUEnforcer:
         self._alert_cooldown[key] = now
         try:
             psutil.Process(pid).terminate()
-            msg = f"Killed {name} (PID {pid}): {reason}"
-            log.warning(msg)
+            log.warning("Killed %s (PID %s): %s", name, pid, reason)
             self.store.add_audit("KILL", name, reason, f"terminated (PID {pid})")
-            self.store.add_alert("warning", msg)
+            self.store.add_alert("warning", f"Killed {name} (PID {pid}): {reason}")
+            if rule_key in self._rule_state:
+                self._rule_state[rule_key]["last_action"] = "kill"
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             log.debug("Kill failed for %s: %s", name, e)
 
-    def _restart(self, p: psutil.Process, name: str, reason: str):
+    def _restart(self, p: psutil.Process, name: str, reason: str, rule_key: str = ""):
         key = f"restart:{p.pid}"
         now = time.time()
         if now - self._alert_cooldown.get(key, 0) < self._cooldown_secs:
@@ -147,61 +236,63 @@ class GPUEnforcer:
         self._alert_cooldown[key] = now
         try:
             cmdline = p.cmdline()
-            cwd = p.cwd()
+            cwd     = p.cwd()
             p.terminate()
             time.sleep(0.5)
             if cmdline:
                 subprocess.Popen(cmdline, cwd=cwd)
-            msg = f"Restarted {name}: {reason}"
-            log.info(msg)
+            log.info("Restarted %s: %s", name, reason)
             self.store.add_audit("RESTART", name, reason, "restarted with original args")
-            self.store.add_alert("info", msg)
+            self.store.add_alert("info", f"Restarted {name}: {reason}")
+            if rule_key in self._rule_state:
+                self._rule_state[rule_key]["last_action"] = "restart"
         except Exception as e:
             log.error("Restart failed for %s: %s", name, e)
 
     def get_enforcement_status(self) -> List[Dict]:
-        status = []
         try:
-            running_procs = {
+            running = {
                 p.info["name"].lower().replace(".exe", ""): p.pid
                 for p in psutil.process_iter(["name"], ad_value=None)
                 if p.info.get("name")
             }
         except Exception:
-            running_procs = {}
+            running = {}
 
+        result = []
         for exe, rule in self._enforce_map.items():
-            matched_pid = next(
-                (pid for name, pid in running_procs.items() if exe in name or name == exe), None
-            )
-            status.append({
-                "rule_name": rule.name,
-                "exe": rule.exe,
-                "gpu_enforce": rule.gpu_enforce,
-                "max_cpu_pct": rule.max_cpu_pct,
-                "max_ram_mb": rule.max_ram_mb,
-                "action": rule.action,
-                "running": matched_pid is not None,
-                "pid": matched_pid,
+            matched_pid = next((pid for n, pid in running.items() if exe in n or n == exe), None)
+            state = self._rule_state.get(exe, {})
+            result.append({
+                "rule_name":       rule.name,
+                "exe":             rule.exe,
+                "gpu_enforce":     rule.gpu_enforce,
+                "max_cpu_pct":     rule.max_cpu_pct,
+                "max_ram_mb":      rule.max_ram_mb,
+                "max_vram_mb":     rule.max_vram_mb,
+                "action":          rule.action,
+                "running":         matched_pid is not None,
+                "pid":             matched_pid,
+                "compliant":       state.get("compliant", True),
+                "vram_mb":         state.get("vram_mb", 0.0),
+                "last_action":     state.get("last_action"),
+                "last_violation":  state.get("last_violation"),
+                "violation_count": state.get("violation_count", 0),
             })
-        return status
+        return result
 
 
 def _within_hours(allowed_hours: str) -> bool:
     if not allowed_hours:
         return True
     try:
-        parts = allowed_hours.split("-")
-        if len(parts) != 2:
-            return True
-        sh, sm = map(int, parts[0].split(":"))
-        eh, em = map(int, parts[1].split(":"))
-        now = datetime.now()
-        start = sh * 60 + sm
-        end = eh * 60 + em
-        cur = now.hour * 60 + now.minute
-        if start <= end:
-            return start <= cur <= end
-        return cur >= start or cur <= end
+        start_s, end_s = allowed_hours.split("-")
+        sh, sm = map(int, start_s.split(":"))
+        eh, em = map(int, end_s.split(":"))
+        now    = datetime.now()
+        start  = sh * 60 + sm
+        end    = eh * 60 + em
+        cur    = now.hour * 60 + now.minute
+        return (start <= cur <= end) if start <= end else (cur >= start or cur <= end)
     except Exception:
         return True

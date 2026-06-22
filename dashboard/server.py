@@ -220,6 +220,11 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
+    @app.route("/api/processes/<int:pid>/migrate", methods=["POST"])
+    def api_migrate(pid):
+        result = _enforcer.migrate_pid(pid)
+        return jsonify(result), (200 if result["ok"] else 400)
+
     @app.route("/api/processes/<int:pid>/throttle", methods=["POST"])
     def api_throttle(pid):
         import platform

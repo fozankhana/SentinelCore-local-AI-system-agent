@@ -36,11 +36,11 @@ def main():
     setup_logging(config.agent.log_level)
     log = logging.getLogger("sentinelcore")
 
-    log.info("Starting SentinelCore v0.1")
+    log.info("Starting SentinelCore v0.2")
 
     store     = MetricsStore(config)
     collector = MetricsCollector(config)
-    enforcer  = GPUEnforcer(config, store)
+    enforcer  = GPUEnforcer(config, store, collector)
     alerts    = AlertSystem(config, store)
 
     ai_agent = None

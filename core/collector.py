@@ -299,6 +299,12 @@ class MetricsCollector:
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
+        gpu_map = self.get_gpu_process_map()
+        if gpu_map:
+            for p in procs:
+                if p["pid"] in gpu_map:
+                    p["vram_mb"] = round(gpu_map[p["pid"]], 1)
+
         procs.sort(key=lambda x: x["cpu_pct"], reverse=True)
         return procs[:100]
 

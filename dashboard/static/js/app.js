@@ -229,23 +229,52 @@ const SC = {
     const el = document.getElementById('enf-list');
     if (!el) return;
     if (!rules.length) {
-      el.innerHTML = '<div class="text-dim text-sm">No enforcement rules configured.</div>';
+      el.innerHTML = '<div class="text-dim text-sm" style="padding:8px 0">No enforcement rules configured.</div>';
       return;
     }
+    const total     = rules.length;
+    const violations = rules.filter(r => r.running && !r.compliant).length;
+    const cntEl  = document.getElementById('enf-compliant-count');
+    const violEl = document.getElementById('enf-violation-count');
+    if (cntEl)  cntEl.textContent  = `${total - violations} / ${total} compliant`;
+    if (violEl) { violEl.textContent = violations + ' violations'; violEl.style.display = violations > 0 ? '' : 'none'; }
+
     el.innerHTML = rules.map(r => {
-      const dot = r.running ? 'var(--green)' : 'var(--text-dim)';
-      const pill = r.running ? 'pill-green' : 'pill-gray';
-      const status = r.running ? 'Running' : 'Not running';
+      const notRunning  = !r.running;
+      const violated    = r.running && !r.compliant;
+      const compliant   = r.running &&  r.compliant;
+      const dotColor    = notRunning ? 'var(--text-dim)' : violated ? 'var(--red)' : 'var(--green)';
+      const statusPill  = notRunning
+        ? '<span class="pill pill-gray">Offline</span>'
+        : violated
+          ? '<span class="pill pill-red">Violation</span>'
+          : '<span class="pill pill-green">Compliant</span>';
+      const vramStr     = (r.vram_mb > 0) ? fmtMB(r.vram_mb) : '—';
+      const violBadge   = r.violation_count > 0
+        ? `<span class="text-xs text-red">${r.violation_count}✗</span>`
+        : '';
+      const lastAct     = r.last_action
+        ? `<span class="pill pill-yellow text-xs">${r.last_action}</span>`
+        : '';
+      const migrateBtn  = (r.running && r.gpu_enforce && r.pid)
+        ? `<button class="btn btn-sm" onclick="SC.migrateProc(${r.pid},'${escHtml(r.exe)}')">GPU →</button>`
+        : '';
       return `
         <div class="enf-row">
-          <div class="enf-dot" style="background:${dot}"></div>
+          <div class="enf-dot" style="background:${dotColor}"></div>
           <div class="flex-1">
-            <div class="text-sm fw-600">${r.rule_name || r.exe}</div>
-            <div class="text-xs text-dim">${r.exe}${r.pid ? ' · PID ' + r.pid : ''}</div>
+            <div class="text-sm fw-600">${escHtml(r.rule_name || r.exe)}</div>
+            <div class="text-xs text-dim">${escHtml(r.exe)}${r.pid ? ' · PID ' + r.pid : ''}${r.gpu_enforce ? ' · GPU enforced' : ''}</div>
           </div>
-          <span class="pill ${pill}">${status}</span>
-          <span class="pill pill-gray">${r.action}</span>
-          ${r.gpu_enforce ? '<span class="pill pill-blue">GPU</span>' : ''}
+          <div class="flex gap-2 items-center" style="flex-wrap:wrap;justify-content:flex-end">
+            <span class="text-xs text-dim">VRAM: ${vramStr}</span>
+            ${violBadge}
+            ${lastAct}
+            ${statusPill}
+            ${r.gpu_enforce ? '<span class="pill pill-blue">GPU</span>' : ''}
+            <span class="pill pill-gray">${r.action}</span>
+            ${migrateBtn}
+          </div>
         </div>`;
     }).join('');
   },
@@ -291,6 +320,12 @@ const SC = {
     const r = await fetch(`/api/processes/${pid}/throttle`, { method: 'POST' });
     const j = await r.json();
     toast(j.message || j.error, j.ok ? 'yellow' : 'red');
+  },
+
+  async migrateProc(pid, name) {
+    const r = await fetch(`/api/processes/${pid}/migrate`, { method: 'POST' });
+    const j = await r.json();
+    toast(j.message || j.error, j.ok ? 'green' : 'red');
   },
 
   // ── Charts init ──
@@ -459,7 +494,11 @@ function loadAudit() {
 }
 
 function actionPill(a) {
-  const m = { KILL:'pill-red', THROTTLE:'pill-yellow', RESTART:'pill-blue', ALERT:'pill-yellow', ENFORCE:'pill-green' };
+  const m = {
+    KILL:'pill-red', THROTTLE:'pill-yellow', RESTART:'pill-blue',
+    ALERT:'pill-yellow', ENFORCE:'pill-green', MIGRATE:'pill-blue',
+    VIOLATED:'pill-red', RESTORED:'pill-green',
+  };
   return m[a] || 'pill-gray';
 }
 
