@@ -40,6 +40,7 @@ const SC = {
     this.updateAlertBadge(d.alert_count || 0);
     this.updateTopbar(d);
     this.updateHealthScore(d);
+    if (typeof updateGPUProcesses === 'function') updateGPUProcesses(d.processes || []);
   },
 
   // ── CPU ──
