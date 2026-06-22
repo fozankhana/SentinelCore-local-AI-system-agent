@@ -286,6 +286,8 @@ class MetricsCollector:
         for proc in psutil.process_iter(attrs, ad_value=None):
             try:
                 info = proc.info
+                if info["pid"] == 0:
+                    continue
                 mem = info.get("memory_info")
                 procs.append({
                     "pid": info["pid"],
