@@ -22,6 +22,10 @@
 <div class="card mb-4">
   <div class="card-hd">
     <div class="card-title">Enforcement Board</div>
+    <div class="flex gap-2 items-center">
+      <span class="card-badge" id="enf-compliant-count">—</span>
+      <span class="card-badge text-red" id="enf-violation-count" style="display:none"></span>
+    </div>
   </div>
   <div id="enf-list"></div>
 </div>
@@ -73,6 +77,7 @@ function updateGPUProcesses(procs) {
       <td class="${p.vram_mb>0?'text-purple':''}">${p.vram_mb>0?fmtMB(p.vram_mb):'—'}</td>
       <td><span class="pill ${p.status==='running'?'pill-green':'pill-gray'}">${p.status}</span></td>
       <td>
+        ${p.vram_mb === 0 ? `<button class="btn btn-sm" onclick="SC.migrateProc(${p.pid},'${escHtml(p.name)}')">GPU→</button>` : ''}
         <button class="btn btn-sm btn-warn"   onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
         <button class="btn btn-sm btn-danger"  onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
       </td>
