@@ -240,6 +240,43 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
+    @app.route("/api/processes/<int:pid>/cap", methods=["POST"])
+    def api_cap(pid):
+        data = request.json or {}
+        result = _enforcer.cap_pid(pid, data.get("max_ram_mb"), data.get("cpu_rate_pct"))
+        return jsonify(result), (200 if result["ok"] else 400)
+
+    @app.route("/api/processes/<int:pid>/release_cap", methods=["POST"])
+    def api_release_cap(pid):
+        try:
+            _enforcer.release_cap(pid)
+            return jsonify({"ok": True, "message": f"Cap released for PID {pid}"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+    @app.route("/api/processes/<int:pid>/affinity", methods=["POST"])
+    def api_affinity(pid):
+        data = request.json or {}
+        cores = data.get("cores", [])
+        try:
+            p = psutil.Process(pid)
+            name = p.name()
+            p.cpu_affinity(cores)
+            _store.add_audit("AFFINITY", name, f"cores: {cores}", f"CPU affinity set PID {pid}")
+            return jsonify({"ok": True, "message": f"Affinity set for {name} (PID {pid}) → cores {cores}"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+    @app.route("/api/enforcement/rules")
+    def api_enforcement_rules():
+        import dataclasses
+        return jsonify({
+            "enforce":  [dataclasses.asdict(r) for r in _config.enforce],
+            "block":    [dataclasses.asdict(r) for r in _config.block],
+            "schedule": [dataclasses.asdict(r) for r in _config.schedule],
+            "capped":   _enforcer.list_capped(),
+        })
+
     # --- API: config ---
 
     @app.route("/api/config")

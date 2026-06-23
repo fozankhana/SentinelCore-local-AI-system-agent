@@ -73,12 +73,14 @@ class EnforceRule:
     max_vram_mb: Optional[int] = None
     action: str = "alert"
     browser_flags: List[str] = field(default_factory=list)
+    auto_restart: bool = False
 
 
 @dataclass
 class BlockRule:
     exe: str = ""
     reason: str = ""
+    path: str = ""
 
 
 @dataclass
@@ -191,12 +193,14 @@ def load_config(path: Optional[str] = None) -> "Config":
             max_vram_mb=rule.get("max_vram_mb"),
             action=rule.get("action", "alert"),
             browser_flags=rule.get("browser_flags", []),
+            auto_restart=rule.get("auto_restart", False),
         ))
 
     for rule in data.get("block", []):
         config.block.append(BlockRule(
             exe=rule.get("exe", ""),
             reason=rule.get("reason", ""),
+            path=rule.get("path", ""),
         ))
 
     for rule in data.get("schedule", []):
