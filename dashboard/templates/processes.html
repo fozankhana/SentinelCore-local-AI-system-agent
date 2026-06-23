@@ -3,15 +3,36 @@
 {% block topbar_title %}Process Manager{% endblock %}
 
 {% block content %}
-<div class="sec-hd mb-4">
-  <div class="sec-title">All Processes</div>
-  <div class="flex gap-3 items-center">
-    <input type="text" id="proc-search" class="search" placeholder="Filter by name…" oninput="SC.updateProcesses(SC.last.processes||[])">
-    <span class="text-dim text-xs" id="proc-count"></span>
+
+<!-- Summary row -->
+<div class="g4 mb-4">
+  <div class="card">
+    <div class="card-title">Processes</div>
+    <div class="metric-num text-blue" id="proc-total">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Enforce Rules</div>
+    <div class="metric-num text-green" id="proc-rules-count">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Block Rules</div>
+    <div class="metric-num text-red" id="proc-block-count">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Job Object Caps</div>
+    <div class="metric-num text-yellow" id="proc-capped-count">—</div>
   </div>
 </div>
 
-<div class="card">
+<!-- Process table -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">All Processes</div>
+    <div class="flex gap-3 items-center">
+      <input type="text" id="proc-search" class="search" placeholder="Filter by name…" oninput="SC.updateProcesses(SC.last.processes||[])">
+      <span class="text-dim text-xs" id="proc-count"></span>
+    </div>
+  </div>
   <div class="tbl-wrap">
     <table>
       <thead>
@@ -30,12 +51,141 @@
   </div>
 </div>
 
+<!-- Enforcement rules — auto-populated by SC.updateEnforcement() via #enf-list -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Enforcement Rules</div>
+    <div class="flex gap-2 items-center">
+      <span class="card-badge" id="enf-compliant-count">—</span>
+      <span class="card-badge text-red" id="enf-violation-count" style="display:none"></span>
+    </div>
+  </div>
+  <div id="enf-list"></div>
+</div>
+
+<!-- Block & Schedule rules -->
+<div class="g2 mb-4">
+  <div class="card">
+    <div class="card-hd">
+      <div class="sec-title" style="font-size:13px">Block Rules</div>
+      <span class="card-badge" id="block-rules-badge">—</span>
+    </div>
+    <div id="block-rules-list"><div class="text-dim text-sm">No block rules configured.</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hd">
+      <div class="sec-title" style="font-size:13px">Schedule Rules</div>
+      <span class="card-badge" id="sched-rules-badge">—</span>
+    </div>
+    <div id="sched-rules-list"><div class="text-dim text-sm">No schedule rules configured.</div></div>
+  </div>
+</div>
+
+<!-- Active Job Object caps -->
+<div class="card">
+  <div class="card-hd">
+    <div class="sec-title" style="font-size:13px">Job Object Caps</div>
+    <span class="card-badge" id="caps-badge">—</span>
+  </div>
+  <div id="caps-list"><div class="text-dim text-sm">No active caps.</div></div>
+</div>
+
 <script>
-const _orig = SC.updateProcesses.bind(SC);
-SC.updateProcesses = function(procs) {
-  _orig(procs);
-  const el = document.getElementById('proc-count');
-  if (el) el.textContent = procs.length + ' processes';
-};
+let _rulesFetchTs = 0;
+
+function renderProcessRules() {
+  const now = Date.now();
+  if (now - _rulesFetchTs < 3000) return;
+  _rulesFetchTs = now;
+
+  setText('proc-total', (SC.last.processes || []).length);
+
+  fetch('/api/enforcement/rules').then(r => r.json()).then(d => {
+    setText('proc-rules-count', (d.enforce  || []).length);
+    setText('proc-block-count', (d.block    || []).length);
+
+    // Block rules
+    const blockEl    = document.getElementById('block-rules-list');
+    const blockBadge = document.getElementById('block-rules-badge');
+    const blocks     = d.block || [];
+    if (blockBadge) blockBadge.textContent = blocks.length + ' rules';
+    if (blockEl) {
+      blockEl.innerHTML = blocks.length
+        ? blocks.map(r => `
+          <div class="enf-row">
+            <div class="enf-dot" style="background:var(--red)"></div>
+            <div class="flex-1">
+              <div class="text-sm fw-600">${escHtml(r.exe)}</div>
+              ${r.path ? `<div class="text-xs text-dim">${escHtml(r.path)}</div>` : ''}
+            </div>
+            <span class="text-xs text-dim">${escHtml(r.reason || '—')}</span>
+            <span class="pill pill-red">blocked</span>
+          </div>`).join('')
+        : '<div class="text-dim text-sm">No block rules configured.</div>';
+    }
+
+    // Schedule rules
+    const schedEl    = document.getElementById('sched-rules-list');
+    const schedBadge = document.getElementById('sched-rules-badge');
+    const scheds     = d.schedule || [];
+    if (schedBadge) schedBadge.textContent = scheds.length + ' rules';
+    if (schedEl) {
+      schedEl.innerHTML = scheds.length
+        ? scheds.map(r => {
+            const active = _withinHours(r.allowed_hours);
+            return `
+            <div class="enf-row">
+              <div class="enf-dot" style="background:${active ? 'var(--green)' : 'var(--yellow)'}"></div>
+              <div class="flex-1">
+                <div class="text-sm fw-600">${escHtml(r.exe)}</div>
+                <div class="text-xs text-dim">Allowed: ${escHtml(r.allowed_hours)}</div>
+              </div>
+              <span class="pill ${active ? 'pill-green' : 'pill-yellow'}">${active ? 'In window' : 'Outside window'}</span>
+            </div>`;
+          }).join('')
+        : '<div class="text-dim text-sm">No schedule rules configured.</div>';
+    }
+
+    // Job Object caps
+    const capsEl     = document.getElementById('caps-list');
+    const capsBadge  = document.getElementById('caps-badge');
+    const capped     = d.capped || {};
+    const cappedPids = Object.keys(capped);
+    if (capsBadge) capsBadge.textContent = cappedPids.length + ' processes';
+    setText('proc-capped-count', cappedPids.length);
+    if (capsEl) {
+      if (!cappedPids.length) {
+        capsEl.innerHTML = '<div class="text-dim text-sm">No active caps.</div>';
+      } else {
+        const procs = SC.last.processes || [];
+        capsEl.innerHTML = cappedPids.map(pid => {
+          const p  = procs.find(x => String(x.pid) === pid);
+          const nm = p ? escHtml(p.name) : 'PID ' + pid;
+          return `
+          <div class="enf-row">
+            <div class="enf-dot" style="background:var(--yellow)"></div>
+            <div class="flex-1">
+              <div class="text-sm fw-600">${nm}</div>
+              <div class="text-xs text-dim">PID ${pid}</div>
+            </div>
+            <span class="pill pill-yellow">capped</span>
+            <button class="btn btn-sm" onclick="SC.releaseCap(${pid})">Release</button>
+          </div>`;
+        }).join('');
+      }
+    }
+  }).catch(() => {});
+}
+
+function _withinHours(range) {
+  if (!range) return true;
+  try {
+    const [s, e] = range.split('-');
+    const toMin  = str => { const [h, m] = str.split(':').map(Number); return h * 60 + m; };
+    const now    = new Date(), cur = now.getHours() * 60 + now.getMinutes();
+    const start  = toMin(s), end = toMin(e);
+    return start <= end ? (cur >= start && cur <= end) : (cur >= start || cur <= end);
+  } catch { return true; }
+}
 </script>
 {% endblock %}
