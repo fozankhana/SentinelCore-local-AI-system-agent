@@ -311,8 +311,15 @@ class MetricsCollector:
         return procs[:100]
 
     def get_gpu_process_map(self) -> Dict[int, float]:
+        if self._gpu_backend == "cuda":
+            return self._get_cuda_process_map()
+        if self._gpu_backend == "rocm":
+            return self._get_rocm_process_map()
+        return {}
+
+    def _get_cuda_process_map(self) -> Dict[int, float]:
         result: Dict[int, float] = {}
-        if self._gpu_backend != "cuda" or not self._nvml_handles:
+        if not self._nvml_handles:
             return result
         pynvml = self._pynvml
         for handle in self._nvml_handles:
@@ -326,6 +333,31 @@ class MetricsCollector:
                         result[p.pid] = result.get(p.pid, 0.0) + vram
                 except Exception:
                     pass
+        return result
+
+    def _get_rocm_process_map(self) -> Dict[int, float]:
+        """Per-process VRAM for AMD GPUs via rocm-smi --showpids --json."""
+        import json, subprocess
+        result: Dict[int, float] = {}
+        try:
+            raw = subprocess.check_output(
+                ["rocm-smi", "--showpids", "--json"],
+                timeout=3, stderr=subprocess.DEVNULL,
+            )
+            data = json.loads(raw)
+            for card_info in data.values():
+                procs = card_info.get("process_info") or card_info
+                if not isinstance(procs, dict):
+                    continue
+                for pid_str, proc in procs.items():
+                    try:
+                        pid = int(pid_str)
+                        mem_b = int(proc.get("mem", 0))
+                        result[pid] = result.get(pid, 0.0) + mem_b / 1048576
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
         return result
 
     def get_disk_partitions(self) -> List[Dict]:

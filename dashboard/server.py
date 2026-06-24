@@ -113,8 +113,9 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
                 try:
                     with _latest_lock:
                         snapshot = dict(_latest)
-                    snapshot["enforcement"] = _enforcer.get_enforcement_status()
-                    snapshot["alert_count"] = len(
+                    snapshot["enforcement"]   = _enforcer.get_enforcement_status()
+                    snapshot["gpu_backend"]   = getattr(_collector, "_gpu_backend", "none")
+                    snapshot["alert_count"]   = len(
                         _store.get_alerts(limit=50, unacknowledged_only=True)
                     )
                     yield f"data: {json.dumps(snapshot, default=str)}\n\n"
