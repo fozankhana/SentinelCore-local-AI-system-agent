@@ -34,7 +34,10 @@
 <div class="card">
   <div class="card-hd">
     <div class="card-title">Process GPU Attribution</div>
-    <div class="card-badge" id="gpu-proc-count">—</div>
+    <div class="flex gap-2 items-center">
+      <span class="card-badge" id="gpu-backend-badge" style="display:none"></span>
+      <span class="card-badge" id="gpu-proc-count">—</span>
+    </div>
   </div>
   <div class="tbl-wrap">
     <table>
@@ -55,7 +58,18 @@
 </div>
 
 <script>
+const _BACKEND_LABEL = { cuda: 'NVIDIA CUDA', rocm: 'AMD ROCm', metal: 'Apple Metal', arc: 'Intel Arc', none: 'No GPU' };
+
 function updateGPUProcesses(procs) {
+  // Backend badge
+  const badge = document.getElementById('gpu-backend-badge');
+  if (badge) {
+    const b = (SC.last.gpu_backend || 'none');
+    badge.textContent = _BACKEND_LABEL[b] || b.toUpperCase();
+    badge.style.display = '';
+    badge.style.color = b === 'cuda' ? 'var(--green)' : b === 'rocm' ? 'var(--red)' : b === 'metal' ? 'var(--blue)' : b === 'arc' ? 'var(--yellow)' : '';
+  }
+
   const gpuProcs = procs.filter(p => p.vram_mb > 0 || p.cpu_pct > 5);
   const tbody = document.getElementById('gpu-proc-tbody');
   const count = document.getElementById('gpu-proc-count');

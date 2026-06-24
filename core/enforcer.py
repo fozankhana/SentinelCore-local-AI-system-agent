@@ -26,13 +26,40 @@ CHROME_GPU_FLAGS = [
     "--force-gpu-mem-available-mb=4096",
 ]
 
+# Chrome/Chromium flags for Apple Metal (macOS)
+CHROME_METAL_FLAGS = [
+    "--use-angle=metal",
+    "--enable-gpu-rasterization",
+    "--enable-oop-rasterization",
+    "--enable-zero-copy",
+    "--ignore-gpu-blocklist",
+    "--disable-software-rasterizer",
+    "--enable-accelerated-video-decode",
+]
+
 CHROME_LIKE  = {"chrome", "brave", "msedge", "edge", "arc", "chromium", "google-chrome", "brave-browser"}
 FIREFOX_LIKE = {"firefox", "firefox-esr"}
 
+# NVIDIA CUDA
 CUDA_ENV = {
     "CUDA_VISIBLE_DEVICES": "0",
     "__NV_PRIME_RENDER_OFFLOAD": "1",
     "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+}
+
+# AMD ROCm / HIP
+ROCM_ENV = {
+    "HIP_VISIBLE_DEVICES": "0",
+    "ROCR_VISIBLE_DEVICES": "0",
+    "GPU_DEVICE_ORDINAL": "0",
+    "HSA_ENABLE_SDMA": "0",
+}
+
+# Intel Arc / oneAPI
+ARC_ENV = {
+    "SYCL_DEVICE_FILTER": "level_zero:gpu",
+    "ZES_ENABLE_SYSMAN": "1",
+    "ONEAPI_DEVICE_SELECTOR": "level_zero:gpu",
 }
 
 
@@ -207,28 +234,40 @@ class GPUEnforcer:
         self._alert_cooldown[key] = now
 
         exe_base = name.lower().replace(".exe", "")
+        backend  = getattr(self._collector, "_gpu_backend", "cuda") if self._collector else "cuda"
         try:
             cmdline = p.cmdline()
             cwd     = p.cwd()
             env     = os.environ.copy()
 
             if exe_base in CHROME_LIKE:
-                # If GPU flags already injected but still no GPU, don't loop — alert instead
-                if any(f in cmdline for f in CHROME_GPU_FLAGS[:2]):
+                # Pick the right flag set for the active GPU backend
+                flags_for_backend = CHROME_METAL_FLAGS if backend == "metal" else CHROME_GPU_FLAGS
+                sentinel_flag     = flags_for_backend[0]
+                # If flags already injected but VRAM still 0 — don't loop, alert instead
+                if any(f in cmdline for f in flags_for_backend[:2]):
                     self._throttled_alert(
                         f"gpu-stuck:{p.pid}", "warning",
                         f"{name} has GPU flags but GPU utilisation is still 0 — hardware acceleration may be blocked.",
                         name, reason,
                     )
                     return
-                extra       = [f for f in CHROME_GPU_FLAGS if f not in cmdline]
+                extra       = [f for f in flags_for_backend if f not in cmdline]
                 new_cmdline = cmdline + extra
             elif exe_base in FIREFOX_LIKE:
-                env["MOZ_WEBRENDER"]    = "1"
-                env["MOZ_ACCELERATED"]  = "1"
+                env["MOZ_WEBRENDER"]   = "1"
+                env["MOZ_ACCELERATED"] = "1"
                 new_cmdline = cmdline
             else:
-                env.update(CUDA_ENV)
+                # Non-browser: inject backend-specific env vars
+                if backend == "rocm":
+                    env.update(ROCM_ENV)
+                elif backend == "arc":
+                    env.update(ARC_ENV)
+                elif backend == "metal":
+                    pass  # Metal is automatic on macOS; no env injection needed
+                else:
+                    env.update(CUDA_ENV)
                 new_cmdline = cmdline
 
             p.terminate()
@@ -239,8 +278,8 @@ class GPUEnforcer:
                     flags = subprocess.DETACHED_PROCESS
                 subprocess.Popen(new_cmdline, cwd=cwd, env=env, creationflags=flags)
 
-            log.info("MIGRATED  %-20s  → relaunched with GPU flags", name)
-            self.store.add_audit("MIGRATE", name, reason, f"relaunched with GPU flags (PID {p.pid})")
+            log.info("MIGRATED  %-20s  → relaunched with %s GPU flags", name, backend.upper())
+            self.store.add_audit("MIGRATE", name, reason, f"relaunched with {backend.upper()} flags (PID {p.pid})")
             self.store.add_alert("info", f"GPU migrated {name} (PID {p.pid})")
             if rule_key in self._rule_state:
                 self._rule_state[rule_key]["last_action"] = "migrate"
