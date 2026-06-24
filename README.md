@@ -287,8 +287,8 @@ allowed_hours = "20:00-23:59"
 
 - [x] **v0.1** — Core metrics collector, SQLite storage, web dashboard
 - [x] **v0.2** — GPU enforcement engine (NVIDIA CUDA + browser flags)
-- [ ] **v0.3** — Process controller (cgroups, Job Objects, kill/throttle)
-- [ ] **v0.4** — AMD ROCm + Apple Metal enforcement support
+- [x] **v0.3** — Process controller (cgroups, Job Objects, kill/throttle)
+- [x] **v0.4** — AMD ROCm + Apple Metal enforcement support
 - [ ] **v0.5** — AI agent layer (Ollama integration, summaries, Q&A)
 - [ ] **v0.6** — Browser tab awareness
 - [ ] **v0.7** — Multi-GPU routing

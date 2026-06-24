@@ -40,6 +40,8 @@ const SC = {
     this.updateAlertBadge(d.alert_count || 0);
     this.updateTopbar(d);
     this.updateHealthScore(d);
+    if (typeof updateGPUProcesses  === 'function') updateGPUProcesses(d.processes || []);
+    if (typeof renderProcessRules  === 'function') renderProcessRules();
   },
 
   // ── CPU ──
@@ -197,6 +199,9 @@ const SC = {
 
   // ── Processes ──
   updateProcesses(procs) {
+    const cnt = document.getElementById('proc-count');
+    if (cnt) cnt.textContent = procs.length + ' processes';
+
     const tbody = document.getElementById('proc-tbody');
     if (!tbody) return;
 
@@ -217,6 +222,7 @@ const SC = {
           <td>${p.vram_mb > 0 ? fmtMB(p.vram_mb) : '—'}</td>
           <td><span class="pill ${p.status==='running'?'pill-green':'pill-gray'}">${p.status}</span></td>
           <td>
+            <button class="btn btn-sm" title="Apply Job Object cap" onclick="SC.capProc(${p.pid},'${escHtml(p.name)}')">🔒</button>
             <button class="btn btn-sm btn-warn" onclick="SC.throttleProc(${p.pid},'${escHtml(p.name)}')">⬇</button>
             <button class="btn btn-sm btn-danger" onclick="SC.killProc(${p.pid},'${escHtml(p.name)}')">✕</button>
           </td>
@@ -324,6 +330,29 @@ const SC = {
 
   async migrateProc(pid, name) {
     const r = await fetch(`/api/processes/${pid}/migrate`, { method: 'POST' });
+    const j = await r.json();
+    toast(j.message || j.error, j.ok ? 'green' : 'red');
+  },
+
+  async capProc(pid, name) {
+    const ram = prompt(`RAM cap for ${name} (MB, blank to skip):`);
+    const cpu = prompt(`CPU rate cap for ${name} (%, blank to skip):`);
+    if (!ram && !cpu) return;
+    const body = {};
+    if (ram && parseInt(ram)) body.max_ram_mb   = parseInt(ram);
+    if (cpu && parseInt(cpu)) body.cpu_rate_pct = parseInt(cpu);
+    if (!body.max_ram_mb && !body.cpu_rate_pct) return;
+    const r = await fetch(`/api/processes/${pid}/cap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    toast(j.ok ? `Cap applied to ${name}` : (Object.values(j.results || {}).map(v => v.reason).filter(Boolean).join('; ') || 'Cap failed'), j.ok ? 'yellow' : 'red');
+  },
+
+  async releaseCap(pid) {
+    const r = await fetch(`/api/processes/${pid}/release_cap`, { method: 'POST' });
     const j = await r.json();
     toast(j.message || j.error, j.ok ? 'green' : 'red');
   },
@@ -498,6 +527,7 @@ function actionPill(a) {
     KILL:'pill-red', THROTTLE:'pill-yellow', RESTART:'pill-blue',
     ALERT:'pill-yellow', ENFORCE:'pill-green', MIGRATE:'pill-blue',
     VIOLATED:'pill-red', RESTORED:'pill-green',
+    CAP:'pill-yellow', AFFINITY:'pill-gray', AUTO_RESTART:'pill-blue',
   };
   return m[a] || 'pill-gray';
 }
