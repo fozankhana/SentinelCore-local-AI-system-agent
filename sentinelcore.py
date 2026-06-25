@@ -99,7 +99,7 @@ def main():
 
     host = config.agent.dashboard_host
     port = config.agent.dashboard_port
-    log.info("Dashboard → http://%s:%s", host, port)
+    log.info("Dashboard @ http://%s:%s", host, port)
 
     try:
         app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)
