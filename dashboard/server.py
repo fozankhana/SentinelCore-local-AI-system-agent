@@ -73,6 +73,10 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
     def background_page():
         return render_template("background.html", page="background")
 
+    @app.route("/ai")
+    def ai_page():
+        return render_template("ai.html", page="ai")
+
     # --- API: background agent ---
 
     @app.route("/api/background")
@@ -293,6 +297,14 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
             return jsonify({"enabled": False})
         return jsonify({"enabled": True, **_ai_agent.get_last_summary()})
 
+    @app.route("/api/ai/summary/refresh", methods=["POST"])
+    def api_ai_summary_refresh():
+        if _ai_agent is None:
+            return jsonify({"error": "AI agent not enabled"}), 503
+        import threading
+        threading.Thread(target=_ai_agent.run_cycle, daemon=True).start()
+        return jsonify({"ok": True, "message": "Summary refresh triggered"})
+
     @app.route("/api/ai/ask", methods=["POST"])
     def api_ai_ask():
         if _ai_agent is None:
@@ -302,5 +314,51 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
             return jsonify({"error": "No question provided"}), 400
         answer = _ai_agent.ask(question)
         return jsonify({"answer": answer})
+
+    @app.route("/api/ai/stream")
+    def api_ai_stream():
+        if _ai_agent is None:
+            return jsonify({"error": "AI agent not enabled"}), 503
+        question = request.args.get("q", "").strip()
+        if not question:
+            return jsonify({"error": "No question provided"}), 400
+
+        def generate():
+            try:
+                for chunk in _ai_agent.ask_stream(question):
+                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    @app.route("/api/ai/models")
+    def api_ai_models():
+        if _ai_agent is None:
+            return jsonify({"enabled": False, "models": []})
+        models = _ai_agent.list_models()
+        return jsonify({"enabled": True, "models": models, "current": _config.ai.model})
+
+    @app.route("/api/ai/status")
+    def api_ai_status():
+        if _ai_agent is None:
+            cfg = _config.ai
+            return jsonify({"enabled": False, "backend": cfg.backend, "endpoint": cfg.endpoint, "model": cfg.model})
+        result = _ai_agent.test_connection()
+        result["enabled"] = True
+        result["model"] = _config.ai.model
+        return jsonify(result)
+
+    @app.route("/api/ai/history/clear", methods=["POST"])
+    def api_ai_history_clear():
+        if _ai_agent is None:
+            return jsonify({"error": "AI agent not enabled"}), 503
+        _ai_agent.clear_history()
+        return jsonify({"ok": True})
 
     return app
