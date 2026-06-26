@@ -16,6 +16,7 @@ _alerts_sys = None
 _config = None
 _ai_agent = None
 _bg_agent = None
+_browser_monitor = None
 _latest: Dict[str, Any] = {}
 _latest_lock = threading.Lock()
 
@@ -27,7 +28,8 @@ def set_latest(metrics: Dict[str, Any]):
 
 
 def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_agent=None):
-    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent, _bg_agent
+    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent, _bg_agent, _browser_monitor
+    from core.browser_monitor import BrowserMonitor
     _store = store
     _collector = collector
     _enforcer = enforcer
@@ -35,6 +37,7 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
     _config = config
     _ai_agent = ai_agent
     _bg_agent = bg_agent
+    _browser_monitor = BrowserMonitor()
 
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["SECRET_KEY"] = "sentinelcore-local-only"
@@ -76,6 +79,16 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
     @app.route("/ai")
     def ai_page():
         return render_template("ai.html", page="ai")
+
+    @app.route("/browsers")
+    def browsers_page():
+        return render_template("browsers.html", page="browsers")
+
+    # --- API: browsers ---
+
+    @app.route("/api/browsers")
+    def api_browsers():
+        return jsonify(_browser_monitor.collect())
 
     # --- API: background agent ---
 

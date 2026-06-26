@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %} — Browsers{% endblock %}
+{% block topbar_title %}Browser Tab Awareness{% endblock %}
+
+{% block content %}
+
+<!-- Summary bar -->
+<div class="flex gap-3 mb-4 flex-wrap">
+  <div class="card" style="flex:1;min-width:140px">
+    <div class="text-xs text-dim mb-1">Browsers Open</div>
+    <div class="fw-700" style="font-size:1.6rem" id="br-count">—</div>
+  </div>
+  <div class="card" style="flex:1;min-width:140px">
+    <div class="text-xs text-dim mb-1">Live Tabs (CDP)</div>
+    <div class="fw-700" style="font-size:1.6rem" id="br-tab-count">—</div>
+  </div>
+  <div class="card" style="flex:1;min-width:140px">
+    <div class="text-xs text-dim mb-1">Est. Tabs (renderers)</div>
+    <div class="fw-700" style="font-size:1.6rem" id="br-renderer-count">—</div>
+  </div>
+  <div class="card" style="flex:1;min-width:140px">
+    <div class="text-xs text-dim mb-1">Browser RAM</div>
+    <div class="fw-700" style="font-size:1.6rem" id="br-ram">—</div>
+  </div>
+</div>
+
+<!-- CDP info banner (hidden once any CDP is connected) -->
+<div id="cdp-banner" class="card mb-4" style="border-color:var(--yellow);display:none">
+  <div class="card-hd">
+    <div class="card-title" style="color:var(--yellow)">Enable Live Tab Tracking (CDP)</div>
+  </div>
+  <div class="text-sm" style="line-height:1.7;color:var(--text-secondary)">
+    No browser has the Chrome DevTools Protocol port open. Restart your browser with
+    <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">--remote-debugging-port=9222</code>
+    to enable live tab listing.<br>
+    <strong>Chrome / Edge / Brave shortcut target:</strong>
+    <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11px">
+      "C:\...\chrome.exe" --remote-debugging-port=9222</code>
+  </div>
+</div>
+
+<!-- Browser cards -->
+<div id="browser-list"></div>
+
+<!-- No browsers -->
+<div id="no-browsers" class="card" style="display:none;text-align:center;padding:40px">
+  <div style="font-size:2rem;margin-bottom:12px">⬚</div>
+  <div class="text-dim">No browsers detected. Open Chrome, Edge, Brave, or Firefox.</div>
+</div>
+
+<style>
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.tab-row:last-child { border-bottom: none; }
+.tab-favicon {
+  width: 14px; height: 14px;
+  border-radius: 2px;
+  background: var(--text-dim);
+  flex-shrink: 0;
+  font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tab-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+.tab-url {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+.url-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+</style>
+
+<script>
+let _refreshTimer = null;
+
+function fmtMB(mb) {
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+  return Math.round(mb) + ' MB';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function shortUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.hostname + (u.pathname !== '/' ? u.pathname.slice(0,30) : '');
+  } catch(_) { return url.slice(0,50); }
+}
+
+function faviconUrl(url) {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.hostname}/favicon.ico`;
+  } catch(_) { return ''; }
+}
+
+async function loadBrowsers() {
+  try {
+    const browsers = await (await fetch('/api/browsers')).json();
+    render(browsers);
+  } catch(e) {
+    console.error('Browser fetch error:', e);
+  }
+}
+
+function render(browsers) {
+  const list = document.getElementById('browser-list');
+  const noBr  = document.getElementById('no-browsers');
+  const banner = document.getElementById('cdp-banner');
+
+  document.getElementById('br-count').textContent = browsers.length;
+
+  const totalTabs = browsers.reduce((s, b) => s + (b.tabs || []).length, 0);
+  const totalRend = browsers.reduce((s, b) => s + (b.renderer_count || 0), 0);
+  const totalRam  = browsers.reduce((s, b) => s + (b.ram_mb || 0), 0);
+
+  document.getElementById('br-tab-count').textContent = totalTabs;
+  document.getElementById('br-renderer-count').textContent = totalRend;
+  document.getElementById('br-ram').textContent = fmtMB(totalRam);
+
+  const anyCdp = browsers.some(b => b.cdp_connected);
+  banner.style.display = (!anyCdp && browsers.length > 0) ? '' : 'none';
+  noBr.style.display   = browsers.length === 0 ? '' : 'none';
+  list.style.display   = browsers.length === 0 ? 'none' : '';
+
+  list.innerHTML = browsers.map(b => {
+    const cdpBadge = b.cdp_connected
+      ? `<span class="pill pill-green" style="font-size:10px">CDP live · port ${b.cdp_port}</span>`
+      : `<span class="pill pill-gray"  style="font-size:10px">No CDP · ~${b.renderer_count} tabs est.</span>`;
+
+    const tabSection = b.cdp_connected && b.tabs.length
+      ? `<div style="margin-top:8px">
+           ${b.tabs.map(t => `
+             <div class="tab-row">
+               <div class="tab-favicon">
+                 <img src="${escHtml(faviconUrl(t.url))}" width="14" height="14"
+                      style="border-radius:2px" onerror="this.style.display='none'">
+               </div>
+               <div class="tab-title" title="${escHtml(t.title)}">${escHtml(t.title || t.url)}</div>
+               <div class="tab-url">${escHtml(shortUrl(t.url))}</div>
+             </div>`).join('')}
+         </div>`
+      : b.recent_urls.length
+      ? `<div style="margin-top:8px">
+           <div class="text-xs text-dim mb-2" style="letter-spacing:.04em;text-transform:uppercase">Recent History</div>
+           ${b.recent_urls.slice(0,15).map(u => `
+             <div class="tab-row">
+               <div class="tab-favicon">
+                 <img src="${escHtml(faviconUrl(u.url))}" width="14" height="14"
+                      style="border-radius:2px" onerror="this.style.display='none'">
+               </div>
+               <div class="tab-title" title="${escHtml(u.title)}">${escHtml(u.title || u.url)}</div>
+               <div class="tab-url">${escHtml(shortUrl(u.url))}</div>
+             </div>`).join('')}
+         </div>`
+      : `<div class="text-dim text-xs mt-3">No tab data available — enable CDP for live tabs.</div>`;
+
+    return `
+      <div class="card mb-4">
+        <div class="card-hd">
+          <div class="card-title">${escHtml(b.name)}</div>
+          <div class="flex gap-2 items-center">
+            ${cdpBadge}
+            <span class="card-badge">PID ${b.pid}</span>
+            <span class="card-badge">${fmtMB(b.ram_mb)} RAM</span>
+            <span class="card-badge">${b.cpu_pct}% CPU</span>
+          </div>
+        </div>
+        ${tabSection}
+      </div>`;
+  }).join('');
+}
+
+loadBrowsers();
+_refreshTimer = setInterval(loadBrowsers, 4000);
+</script>
+{% endblock %}
