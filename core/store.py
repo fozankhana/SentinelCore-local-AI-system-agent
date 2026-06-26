@@ -227,6 +227,16 @@ class MetricsStore:
                 "SELECT * FROM gpu_samples WHERE timestamp=?", (ts,)
             ).fetchall()]
 
+    def get_latest_processes(self, limit: int = 10) -> List[Dict]:
+        with self._connect() as conn:
+            ts = conn.execute("SELECT MAX(timestamp) FROM process_samples").fetchone()[0]
+            if not ts:
+                return []
+            return [dict(r) for r in conn.execute(
+                "SELECT name, cpu_pct, ram_mb, vram_mb, status FROM process_samples WHERE timestamp=? LIMIT ?",
+                (ts, limit),
+            ).fetchall()]
+
     def cleanup_old_data(self):
         now = time.time()
         cutoff_1s = now - self.config.storage.retention_1s_hrs * 3600

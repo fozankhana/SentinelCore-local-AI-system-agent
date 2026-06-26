@@ -36,7 +36,7 @@ def main():
     setup_logging(config.agent.log_level)
     log = logging.getLogger("sentinelcore")
 
-    log.info("Starting SentinelCore v0.4")
+    log.info("Starting SentinelCore v0.6")
 
     store     = MetricsStore(config)
     collector = MetricsCollector(config)
@@ -99,7 +99,7 @@ def main():
 
     host = config.agent.dashboard_host
     port = config.agent.dashboard_port
-    log.info("Dashboard → http://%s:%s", host, port)
+    log.info("Dashboard @ http://%s:%s", host, port)
 
     try:
         app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)

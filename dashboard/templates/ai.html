@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %} — AI Agent{% endblock %}
+{% block topbar_title %}AI Agent{% endblock %}
+
+{% block content %}
+
+<!-- Status bar -->
+<div class="card mb-4" id="ai-status-card">
+  <div class="card-hd">
+    <div class="card-title">AI Backend</div>
+    <div class="flex gap-2 items-center">
+      <span id="ai-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-dim);display:inline-block"></span>
+      <span id="ai-status-label" class="text-dim text-sm">Checking…</span>
+    </div>
+  </div>
+  <div class="g3 gap-3" style="padding:0 0 2px">
+    <div>
+      <div class="text-xs text-dim mb-1">Backend</div>
+      <div class="fw-600 text-sm" id="ai-backend-val">—</div>
+    </div>
+    <div>
+      <div class="text-xs text-dim mb-1">Endpoint</div>
+      <div class="fw-600 text-sm font-mono" id="ai-endpoint-val">—</div>
+    </div>
+    <div>
+      <div class="text-xs text-dim mb-1">Model</div>
+      <div class="fw-600 text-sm" id="ai-model-val">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Auto-summary -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="card-title">System Health Summary</div>
+    <div class="flex gap-2">
+      <span class="text-dim text-xs" id="summary-ts"></span>
+      <button class="btn btn-sm" id="refresh-btn" onclick="refreshSummary()">Refresh</button>
+    </div>
+  </div>
+  <div id="summary-body" class="text-sm" style="line-height:1.7;color:var(--text-secondary);min-height:40px">
+    <span class="text-dim">No summary yet — enable AI in config.toml and wait for the next cycle, or click Refresh.</span>
+  </div>
+</div>
+
+<!-- Chat window -->
+<div class="card mb-4">
+  <div class="card-hd">
+    <div class="card-title">Ask the AI</div>
+    <button class="btn btn-sm text-dim" onclick="clearHistory()" style="font-size:11px">Clear history</button>
+  </div>
+
+  <!-- Messages -->
+  <div id="chat-messages" style="
+    min-height:200px;max-height:420px;overflow-y:auto;
+    display:flex;flex-direction:column;gap:12px;
+    padding:4px 0 8px;
+  "></div>
+
+  <!-- Quick prompts -->
+  <div class="flex gap-2 mt-3 flex-wrap" id="quick-chips">
+    <button class="btn btn-sm" onclick="sendQuick('What process is using the most CPU right now?')">Top CPU process</button>
+    <button class="btn btn-sm" onclick="sendQuick('Why is my RAM usage high?')">RAM analysis</button>
+    <button class="btn btn-sm" onclick="sendQuick('Is my GPU running healthy?')">GPU health</button>
+    <button class="btn btn-sm" onclick="sendQuick('Summarize all active alerts and what I should do.')">Alert triage</button>
+    <button class="btn btn-sm" onclick="sendQuick('What is consuming the most resources on this machine?')">Resource hog</button>
+  </div>
+
+  <!-- Input -->
+  <div class="flex gap-2 mt-3" style="align-items:flex-end">
+    <textarea
+      id="chat-input"
+      rows="2"
+      placeholder="Ask anything about your system…"
+      style="
+        flex:1;resize:none;
+        background:var(--bg-card);border:1px solid var(--border);
+        border-radius:6px;padding:10px 12px;
+        color:var(--text-primary);font-size:13px;font-family:inherit;
+        outline:none;line-height:1.5;
+      "
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
+    ></textarea>
+    <button class="btn btn-primary" id="send-btn" onclick="sendChat()" style="height:56px;padding:0 20px">Send</button>
+  </div>
+  <div class="text-xs text-dim mt-2">Enter to send · Shift+Enter for new line · conversation history is kept</div>
+</div>
+
+<style>
+.msg-user {
+  align-self: flex-end;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 2px 12px;
+  padding: 10px 14px;
+  max-width: 82%;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-ai {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px 12px 12px 12px;
+  padding: 10px 14px;
+  max-width: 88%;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.msg-user .msg-label { color: var(--text-dim); text-align: right; }
+.msg-ai  .msg-label { color: var(--blue); }
+.cursor-blink {
+  display: inline-block;
+  width: 2px; height: 14px;
+  background: var(--text-primary);
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink .7s steps(1) infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+</style>
+
+<script>
+let _streaming = false;
+
+// ── Status ──────────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const d = await (await fetch('/api/ai/status')).json();
+    document.getElementById('ai-backend-val').textContent  = d.backend  || '—';
+    document.getElementById('ai-endpoint-val').textContent = d.endpoint || '—';
+    document.getElementById('ai-model-val').textContent    = d.model    || '—';
+    const dot   = document.getElementById('ai-status-dot');
+    const label = document.getElementById('ai-status-label');
+    if (!d.enabled) {
+      dot.style.background = 'var(--text-dim)';
+      label.textContent = 'Disabled — enable in config.toml';
+    } else if (d.ok) {
+      dot.style.background = 'var(--green)';
+      label.textContent = 'Connected';
+    } else {
+      dot.style.background = 'var(--red)';
+      label.textContent = 'Unreachable: ' + (d.error || '');
+    }
+  } catch(e) {
+    document.getElementById('ai-status-label').textContent = 'Status check failed';
+  }
+}
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+async function loadSummary() {
+  try {
+    const d = await (await fetch('/api/ai/summary')).json();
+    const body = document.getElementById('summary-body');
+    const ts   = document.getElementById('summary-ts');
+    if (d.summary) {
+      body.textContent = d.summary;
+      body.style.color = '';
+      if (d.timestamp) {
+        const age = Math.round((Date.now()/1000 - d.timestamp) / 60);
+        ts.textContent = age < 2 ? 'just now' : age + 'm ago';
+      }
+    }
+  } catch(_) {}
+}
+
+async function refreshSummary() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true; btn.textContent = 'Running…';
+  try {
+    await fetch('/api/ai/summary/refresh', {method:'POST'});
+    await new Promise(r => setTimeout(r, 3000));
+    await loadSummary();
+  } finally {
+    btn.disabled = false; btn.textContent = 'Refresh';
+  }
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+function appendMsg(role, text) {
+  const box = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = role === 'user' ? 'msg-user' : 'msg-ai';
+  div.innerHTML = `<div class="msg-label">${role === 'user' ? 'You' : 'SentinelCore AI'}</div><div class="msg-text"></div>`;
+  div.querySelector('.msg-text').textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div.querySelector('.msg-text');
+}
+
+function sendQuick(q) {
+  document.getElementById('chat-input').value = q;
+  sendChat();
+}
+
+async function sendChat() {
+  if (_streaming) return;
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  _streaming = true;
+  document.getElementById('send-btn').disabled = true;
+
+  appendMsg('user', q);
+  const aiText = appendMsg('ai', '');
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor-blink';
+  aiText.parentElement.appendChild(cursor);
+
+  const box = document.getElementById('chat-messages');
+
+  try {
+    const url = '/api/ai/stream?q=' + encodeURIComponent(q);
+    const es = new EventSource(url);
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.error) {
+        aiText.textContent = 'Error: ' + data.error;
+        cursor.remove(); es.close(); _streaming = false;
+        document.getElementById('send-btn').disabled = false;
+        return;
+      }
+      if (data.done) {
+        cursor.remove(); es.close(); _streaming = false;
+        document.getElementById('send-btn').disabled = false;
+        return;
+      }
+      if (data.chunk) {
+        aiText.textContent += data.chunk;
+        box.scrollTop = box.scrollHeight;
+      }
+    };
+    es.onerror = () => {
+      cursor.remove(); es.close(); _streaming = false;
+      document.getElementById('send-btn').disabled = false;
+      if (!aiText.textContent) aiText.textContent = 'Connection error — is AI enabled in config?';
+    };
+  } catch(err) {
+    cursor.remove();
+    aiText.textContent = 'Error: ' + err.message;
+    _streaming = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+async function clearHistory() {
+  await fetch('/api/ai/history/clear', {method:'POST'});
+  document.getElementById('chat-messages').innerHTML = '';
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadStatus();
+loadSummary();
+setInterval(loadSummary, 60000);
+</script>
+{% endblock %}

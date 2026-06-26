@@ -289,8 +289,8 @@ allowed_hours = "20:00-23:59"
 - [x] **v0.2** — GPU enforcement engine (NVIDIA CUDA + browser flags)
 - [x] **v0.3** — Process controller (cgroups, Job Objects, kill/throttle)
 - [x] **v0.4** — AMD ROCm + Apple Metal enforcement support
-- [ ] **v0.5** — AI agent layer (Ollama integration, summaries, Q&A)
-- [ ] **v0.6** — Browser tab awareness
+- [x] **v0.5** — AI agent layer (Ollama integration, summaries, Q&A)
+- [x] **v0.6** — Browser tab awareness
 - [ ] **v0.7** — Multi-GPU routing
 - [ ] **v1.0** — Stable release, Windows installer, macOS .app bundle
 
