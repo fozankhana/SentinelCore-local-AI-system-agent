@@ -74,6 +74,7 @@ class EnforceRule:
     action: str = "alert"
     browser_flags: List[str] = field(default_factory=list)
     auto_restart: bool = False
+    gpu_index: int = -1
 
 
 @dataclass
@@ -194,6 +195,7 @@ def load_config(path: Optional[str] = None) -> "Config":
             action=rule.get("action", "alert"),
             browser_flags=rule.get("browser_flags", []),
             auto_restart=rule.get("auto_restart", False),
+            gpu_index=rule.get("gpu_index", -1),
         ))
 
     for rule in data.get("block", []):

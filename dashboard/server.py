@@ -17,6 +17,7 @@ _config = None
 _ai_agent = None
 _bg_agent = None
 _browser_monitor = None
+_gpu_router = None
 _latest: Dict[str, Any] = {}
 _latest_lock = threading.Lock()
 
@@ -28,8 +29,9 @@ def set_latest(metrics: Dict[str, Any]):
 
 
 def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_agent=None):
-    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent, _bg_agent, _browser_monitor
+    global _store, _collector, _enforcer, _alerts_sys, _config, _ai_agent, _bg_agent, _browser_monitor, _gpu_router
     from core.browser_monitor import BrowserMonitor
+    from core.gpu_router import GPURouter
     _store = store
     _collector = collector
     _enforcer = enforcer
@@ -38,6 +40,7 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
     _ai_agent = ai_agent
     _bg_agent = bg_agent
     _browser_monitor = BrowserMonitor()
+    _gpu_router = GPURouter(collector, config)
 
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["SECRET_KEY"] = "sentinelcore-local-only"
@@ -84,11 +87,32 @@ def create_app(config, store, collector, enforcer, alerts, ai_agent=None, bg_age
     def browsers_page():
         return render_template("browsers.html", page="browsers")
 
+    @app.route("/multi-gpu")
+    def multi_gpu_page():
+        return render_template("multi_gpu.html", page="multi_gpu")
+
     # --- API: browsers ---
 
     @app.route("/api/browsers")
     def api_browsers():
         return jsonify(_browser_monitor.collect())
+
+    # --- API: multi-GPU routing ---
+
+    @app.route("/api/gpu/list")
+    def api_gpu_list():
+        return jsonify(_gpu_router.list_gpus())
+
+    @app.route("/api/gpu/routing")
+    def api_gpu_routing():
+        return jsonify(_gpu_router.routing_table())
+
+    @app.route("/api/processes/<int:pid>/route", methods=["POST"])
+    def api_route_pid(pid):
+        data      = request.json or {}
+        gpu_index = data.get("gpu_index", 0)
+        result    = _gpu_router.route_pid(pid, gpu_index)
+        return jsonify(result), (200 if result["ok"] else 400)
 
     # --- API: background agent ---
 

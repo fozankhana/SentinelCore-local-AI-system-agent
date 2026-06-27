@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %} — Multi-GPU{% endblock %}
+{% block topbar_title %}Multi-GPU Routing{% endblock %}
+
+{% block content %}
+
+<!-- GPU cards grid -->
+<div id="gpu-grid" class="flex gap-3 flex-wrap mb-4"></div>
+
+<!-- Routing table -->
+<div class="card">
+  <div class="card-hd">
+    <div class="card-title">Process Routing Table</div>
+    <div class="flex gap-2 items-center">
+      <span class="card-badge" id="route-count">—</span>
+      <span class="text-xs text-dim">Driver-detected + manually assigned</span>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Process</th>
+          <th>GPU</th>
+          <th>VRAM</th>
+          <th>Source</th>
+          <th>Reroute</th>
+        </tr>
+      </thead>
+      <tbody id="route-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+.gpu-card {
+  flex: 1;
+  min-width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.gpu-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gpu-id-badge {
+  background: var(--bg-hover);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.gpu-stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.gpu-stat-label { color: var(--text-dim); }
+.gpu-stat-val   { font-weight: 600; }
+</style>
+
+<script>
+function fmtMB(mb) {
+  if (!mb && mb !== 0) return '—';
+  if (mb >= 1024) return (mb/1024).toFixed(1)+' GB';
+  return Math.round(mb)+' MB';
+}
+function fmt1(v) { return (v == null ? '—' : Number(v).toFixed(1)); }
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+let _gpuCount = 0;
+
+async function loadGPUs() {
+  try {
+    const gpus = await (await fetch('/api/gpu/list')).json();
+    _gpuCount = gpus.length;
+    const grid = document.getElementById('gpu-grid');
+
+    if (!gpus.length) {
+      grid.innerHTML = '<div class="card text-dim text-sm" style="padding:20px">No GPUs detected.</div>';
+      return;
+    }
+
+    grid.innerHTML = gpus.map(g => {
+      const util     = g.util_pct  ?? 0;
+      const vramPct  = g.vram_total_mb ? (g.vram_used_mb / g.vram_total_mb * 100) : 0;
+      const tempCls  = g.temp_c > 85 ? 'text-red' : g.temp_c > 70 ? 'text-yellow' : 'text-green';
+      const utilCls  = util > 90 ? 'danger' : util > 70 ? 'warn' : '';
+      const vramCls  = vramPct > 90 ? 'danger' : vramPct > 75 ? 'warn' : '';
+      return `
+        <div class="gpu-card">
+          <div class="gpu-card-name">
+            <span class="gpu-id-badge">GPU ${g.id}</span>
+            ${escHtml(g.name || 'GPU ' + g.id)}
+            <span class="pill ${util>90?'pill-red':util>70?'pill-yellow':'pill-green'}" style="margin-left:auto;font-size:10px">${util}%</span>
+          </div>
+          <div class="gpu-stat-row">
+            <span class="gpu-stat-label">Core util</span>
+            <span class="gpu-stat-val">${util}%</span>
+          </div>
+          <div class="bar mb-3"><div class="bar-fill ${utilCls}" style="width:${util}%"></div></div>
+          <div class="gpu-stat-row">
+            <span class="gpu-stat-label">VRAM</span>
+            <span class="gpu-stat-val">${fmtMB(g.vram_used_mb)} / ${fmtMB(g.vram_total_mb)}</span>
+          </div>
+          <div class="bar mb-3"><div class="bar-fill ${vramCls}" style="width:${vramPct.toFixed(1)}%"></div></div>
+          <div class="g2 gap-2 mt-2">
+            <div class="gpu-stat-row"><span class="gpu-stat-label">Temp</span><span class="${tempCls} fw-600">${g.temp_c != null ? g.temp_c+'°C' : '—'}</span></div>
+            <div class="gpu-stat-row"><span class="gpu-stat-label">Power</span><span class="gpu-stat-val fw-600">${g.watts != null ? g.watts+'W' : '—'}</span></div>
+          </div>
+          <div class="gpu-stat-row mt-2">
+            <span class="gpu-stat-label">Backend</span>
+            <span class="gpu-stat-val">${escHtml(g.backend || '—')}</span>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) { console.error('GPU list error:', e); }
+}
+
+function buildRerouteButtons(pid, currentGpu) {
+  if (_gpuCount < 2) return '<span class="text-dim text-xs">single GPU</span>';
+  const btns = [];
+  for (let i = 0; i < _gpuCount; i++) {
+    if (i === currentGpu) continue;
+    btns.push(`<button class="btn btn-sm" onclick="reroute(${pid},${i})">→ GPU ${i}</button>`);
+  }
+  return btns.join(' ');
+}
+
+async function loadRouting() {
+  try {
+    const rows = await (await fetch('/api/gpu/routing')).json();
+    document.getElementById('route-count').textContent = rows.length + ' processes';
+    const tbody = document.getElementById('route-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-dim text-sm" style="padding:16px;text-align:center">No GPU processes detected</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="text-dim">${r.pid}</td>
+        <td class="font-mono">${escHtml(r.name)}</td>
+        <td><span class="pill pill-${r.gpu_index===0?'green':'blue'}">GPU ${r.gpu_index}</span></td>
+        <td>${r.vram_mb > 0 ? fmtMB(r.vram_mb) : '—'}</td>
+        <td><span class="pill pill-gray" style="font-size:10px">${r.source}</span></td>
+        <td>${buildRerouteButtons(r.pid, r.gpu_index)}</td>
+      </tr>`).join('');
+  } catch(e) { console.error('Routing error:', e); }
+}
+
+async function reroute(pid, gpuIndex) {
+  try {
+    const r = await fetch(`/api/processes/${pid}/route`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({gpu_index: gpuIndex}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (typeof SC !== 'undefined' && SC.toast) SC.toast(`Routed ${d.name} to GPU ${gpuIndex}`, 'success');
+      await loadRouting();
+    } else {
+      alert('Route failed: ' + (d.error || 'unknown error'));
+    }
+  } catch(e) { alert('Request failed: ' + e.message); }
+}
+
+async function refresh() {
+  await Promise.all([loadGPUs(), loadRouting()]);
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+{% endblock %}
