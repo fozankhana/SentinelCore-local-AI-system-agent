@@ -226,7 +226,8 @@ class GPUEnforcer:
         elif action == "kill":     self._kill(proc, reason, rule_key)
         elif action == "restart":  self._restart(p, name, reason, rule_key)
 
-    def _migrate_to_gpu(self, p: psutil.Process, name: str, reason: str, rule_key: str = ""):
+    def _migrate_to_gpu(self, p: psutil.Process, name: str, reason: str, rule_key: str = "",
+                        gpu_index: int = -1):
         key = f"migrate:{p.pid}"
         now = time.time()
         if now - self._alert_cooldown.get(key, 0) < self._cooldown_secs:
@@ -235,6 +236,15 @@ class GPUEnforcer:
 
         exe_base = name.lower().replace(".exe", "")
         backend  = getattr(self._collector, "_gpu_backend", "cuda") if self._collector else "cuda"
+
+        # Resolve gpu_index: rule config > caller arg > 0
+        if gpu_index < 0 and rule_key:
+            rule = self._enforce_map.get(rule_key)
+            gpu_index = getattr(rule, "gpu_index", -1) if rule else -1
+        if gpu_index < 0:
+            gpu_index = 0
+
+        idx = str(gpu_index)
         try:
             cmdline = p.cmdline()
             cwd     = p.cwd()
@@ -243,7 +253,6 @@ class GPUEnforcer:
             if exe_base in CHROME_LIKE:
                 # Pick the right flag set for the active GPU backend
                 flags_for_backend = CHROME_METAL_FLAGS if backend == "metal" else CHROME_GPU_FLAGS
-                sentinel_flag     = flags_for_backend[0]
                 # If flags already injected but VRAM still 0 — don't loop, alert instead
                 if any(f in cmdline for f in flags_for_backend[:2]):
                     self._throttled_alert(
@@ -259,15 +268,18 @@ class GPUEnforcer:
                 env["MOZ_ACCELERATED"] = "1"
                 new_cmdline = cmdline
             else:
-                # Non-browser: inject backend-specific env vars
+                # Non-browser: inject backend-specific env vars with gpu_index
                 if backend == "rocm":
-                    env.update(ROCM_ENV)
+                    env.update({**ROCM_ENV, "HIP_VISIBLE_DEVICES": idx,
+                                 "ROCR_VISIBLE_DEVICES": idx, "GPU_DEVICE_ORDINAL": idx})
                 elif backend == "arc":
-                    env.update(ARC_ENV)
+                    env.update({**ARC_ENV,
+                                 "SYCL_DEVICE_FILTER": f"level_zero:gpu:{idx}",
+                                 "ONEAPI_DEVICE_SELECTOR": f"level_zero:gpu:{idx}"})
                 elif backend == "metal":
                     pass  # Metal is automatic on macOS; no env injection needed
                 else:
-                    env.update(CUDA_ENV)
+                    env.update({**CUDA_ENV, "CUDA_VISIBLE_DEVICES": idx})
                 new_cmdline = cmdline
 
             p.terminate()

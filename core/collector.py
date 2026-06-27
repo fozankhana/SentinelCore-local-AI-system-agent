@@ -317,6 +317,62 @@ class MetricsCollector:
             return self._get_rocm_process_map()
         return {}
 
+    def get_per_gpu_process_map(self) -> Dict[int, Dict[int, float]]:
+        """Returns {gpu_id: {pid: vram_mb}} for multi-GPU routing."""
+        if self._gpu_backend == "cuda":
+            return self._get_cuda_per_gpu_map()
+        if self._gpu_backend == "rocm":
+            return self._get_rocm_per_gpu_map()
+        return {}
+
+    def _get_cuda_per_gpu_map(self) -> Dict[int, Dict[int, float]]:
+        result: Dict[int, Dict[int, float]] = {}
+        if not self._nvml_handles:
+            return result
+        pynvml = self._pynvml
+        for i, handle in enumerate(self._nvml_handles):
+            result[i] = {}
+            for getter in (
+                pynvml.nvmlDeviceGetComputeRunningProcesses,
+                pynvml.nvmlDeviceGetGraphicsRunningProcesses,
+            ):
+                try:
+                    for p in getter(handle):
+                        vram = (p.usedGpuMemory or 0) / 1048576
+                        result[i][p.pid] = result[i].get(p.pid, 0.0) + vram
+                except Exception:
+                    pass
+        return result
+
+    def _get_rocm_per_gpu_map(self) -> Dict[int, Dict[int, float]]:
+        import json, subprocess
+        result: Dict[int, Dict[int, float]] = {}
+        try:
+            raw = subprocess.check_output(
+                ["rocm-smi", "--showpids", "--json"],
+                timeout=3, stderr=subprocess.DEVNULL,
+            )
+            data = json.loads(raw)
+            for card_key, card_info in data.items():
+                try:
+                    gpu_id = int(card_key.replace("card", "").strip())
+                except (ValueError, AttributeError):
+                    gpu_id = 0
+                result.setdefault(gpu_id, {})
+                procs = card_info.get("process_info") or card_info
+                if not isinstance(procs, dict):
+                    continue
+                for pid_str, proc in procs.items():
+                    try:
+                        pid   = int(pid_str)
+                        mem_b = int(proc.get("mem", 0))
+                        result[gpu_id][pid] = result[gpu_id].get(pid, 0.0) + mem_b / 1048576
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
+        return result
+
     def _get_cuda_process_map(self) -> Dict[int, float]:
         result: Dict[int, float] = {}
         if not self._nvml_handles:
