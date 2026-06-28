@@ -203,32 +203,55 @@ Every enforcement action is written:
 
 ## Installation
 
-### Linux
+### Windows — installer (recommended)
+
+1. Download `SentinelCore-1.0.0-Setup.exe` from the [Releases](https://github.com/fozankhana/SentinelCore-local-AI-system-agent/releases) page.
+2. Run the installer — it creates a Start Menu entry and optionally a desktop shortcut.
+3. Launch SentinelCore from Start Menu → open `http://localhost:4080` in any browser.
+
+### macOS — .app bundle
+
+1. Download `SentinelCore-1.0.0-mac.zip` from [Releases](https://github.com/fozankhana/SentinelCore-local-AI-system-agent/releases).
+2. Unzip → drag `SentinelCore.app` to `/Applications`.
+3. Double-click to launch — the dashboard opens automatically in your browser.
+
+### From source — all platforms
+
+**Linux**
 ```bash
-git clone https://github.com/yourusername/sentinelcore
-cd sentinelcore
+git clone https://github.com/fozankhana/SentinelCore-local-AI-system-agent
+cd SentinelCore-local-AI-system-agent
 pip install -r requirements.txt
 cp config.example.toml ~/.sentinelcore/config.toml
 python3 sentinelcore.py
 # Open http://localhost:4080
 ```
 
-### Windows
+**Windows**
 ```powershell
-git clone https://github.com/yourusername/sentinelcore
-cd sentinelcore
+git clone https://github.com/fozankhana/SentinelCore-local-AI-system-agent
+cd SentinelCore-local-AI-system-agent
 pip install -r requirements.txt
 python sentinelcore.py
 # Open http://localhost:4080
 ```
 
-### macOS
+**macOS**
 ```bash
-git clone https://github.com/yourusername/sentinelcore
-cd sentinelcore
+git clone https://github.com/fozankhana/SentinelCore-local-AI-system-agent
+cd SentinelCore-local-AI-system-agent
 pip3 install -r requirements.txt
 python3 sentinelcore.py
 open http://localhost:4080
+```
+
+### Building a distributable
+
+```bash
+pip install pyinstaller
+python build.py --clean           # Windows: produces dist/SentinelCore/
+python build.py --installer       # Windows: also runs Inno Setup → dist/SentinelCore-1.0.0-Setup.exe
+python build.py --platform macos  # macOS:   produces dist/SentinelCore.app
 ```
 
 ---
@@ -292,7 +315,7 @@ allowed_hours = "20:00-23:59"
 - [x] **v0.5** — AI agent layer (Ollama integration, summaries, Q&A)
 - [x] **v0.6** — Browser tab awareness
 - [x] **v0.7** — Multi-GPU routing
-- [ ] **v1.0** — Stable release, Windows installer, macOS .app bundle
+- [x] **v1.0** — Stable release, Windows installer, macOS .app bundle
 
 ---
 

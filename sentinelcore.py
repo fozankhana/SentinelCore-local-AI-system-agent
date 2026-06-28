@@ -36,7 +36,7 @@ def main():
     setup_logging(config.agent.log_level)
     log = logging.getLogger("sentinelcore")
 
-    log.info("Starting SentinelCore v0.7")
+    log.info("Starting SentinelCore v1.0.0")
 
     store     = MetricsStore(config)
     collector = MetricsCollector(config)
