@@ -12,16 +12,16 @@ retention_1m_days = 30
 retention_1h_days = 365
 
 [gpu]
-backend           = "auto"
+backend           = "auto"      # auto | cuda | rocm | metal | arc | vulkan
 enforcement       = true
 check_interval_ms = 2000
 
 [ai]
 enabled           = false
-backend           = "ollama"
+backend           = "ollama"    # ollama | llamacpp | lmstudio
 endpoint          = "http://localhost:11434"
 model             = "llama3.2:3b"
-interval          = 300
+interval          = 300         # seconds between proactive summaries
 
 [alerts]
 cpu_pct_warn      = 85
@@ -36,14 +36,31 @@ url      = ""
 method   = "POST"
 severity = ["warning", "critical"]
 
+# ---------------------------------------------------------------------------
+# [[enforce]] — per-app GPU + resource rules
+#
+# Fields:
+#   name         display name (string)
+#   exe          executable substring match (string)
+#   gpu_enforce  migrate to GPU if found on CPU (bool)
+#   gpu_backend  override GPU backend: cuda | rocm | metal | arc (string)
+#   gpu_index    which GPU to target; -1 = auto/least-loaded (int, v0.7)
+#   max_cpu_pct  throttle/kill threshold for CPU % (float)
+#   max_ram_mb   throttle/kill threshold for RAM MB (float)
+#   max_vram_mb  throttle/kill threshold for VRAM MB (float)
+#   action       alert | throttle | kill | restart
+#   auto_restart relaunch if the process exits unexpectedly (bool, v0.3)
+# ---------------------------------------------------------------------------
+
 [[enforce]]
-name        = "Chrome"
-exe         = "chrome"
-gpu_enforce = true
-max_cpu_pct = 15
-max_ram_mb  = 3000
-max_vram_mb = 4096
-action      = "throttle"
+name         = "Chrome"
+exe          = "chrome"
+gpu_enforce  = true
+max_cpu_pct  = 15
+max_ram_mb   = 3000
+max_vram_mb  = 4096
+action       = "throttle"
+auto_restart = false
 
 [[enforce]]
 name        = "Firefox"
@@ -58,6 +75,7 @@ name        = "Blender"
 exe         = "blender"
 gpu_enforce = true
 gpu_backend = "cuda"
+gpu_index   = 0               # pin to GPU 0; -1 = auto least-loaded
 max_vram_mb = 8192
 action      = "restart"
 
@@ -69,9 +87,26 @@ max_cpu_pct = 20
 max_ram_mb  = 2048
 action      = "throttle"
 
+# ---------------------------------------------------------------------------
+# [[block]] — prevent an executable from launching
+#
+# Fields:
+#   exe    executable substring match
+#   path   full path substring match (alternative to exe, added v0.3)
+#   reason logged reason for the block
+# ---------------------------------------------------------------------------
+
 # [[block]]
 # exe    = "teams"
 # reason = "CPU/RAM hog — use web version"
+
+# [[block]]
+# path   = "C:\\Games\\launcher.exe"
+# reason = "blocked during work hours"
+
+# ---------------------------------------------------------------------------
+# [[schedule]] — time-based allow window
+# ---------------------------------------------------------------------------
 
 # [[schedule]]
 # exe           = "steam"
